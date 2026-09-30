@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: ${{ matrix.compiler }} ${{ matrix.build_type }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+        exclude:
+          - os: macos-latest
+            compiler: gcc
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_COMPILER=${{ matrix.compiler }}
+          -DVIPER_SCPI_WERROR=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang
+          -DVIPER_SCPI_WERROR=ON
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  strict-c99:
+    name: Strict C99 and footprint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the library with extra warnings
+        run: |
+          for cc in gcc clang; do
+            $cc -std=c99 -pedantic-errors -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
+                -Wstrict-prototypes -Wmissing-prototypes -Wcast-qual -Werror \
+                -Iinclude -Isrc -Os -c src/*.c
+            rm -f *.o
+          done
+      - name: Check for dynamic allocation
+        run: |
+          gcc -std=c99 -Os -Iinclude -Isrc -c src/*.c
+          if nm *.o | grep -E ' U (malloc|calloc|realloc|free)$'; then
+            echo "Library must not use the heap" >&2
+            exit 1
+          fi
+          # Informational: PIE relocations put pointer tables in .data on the
+          # host; the Cortex-M job checks the non-PIC embedded layout.
+          size *.o
+          rm -f *.o
+      - name: Context size budget
+        run: |
+          cat > size_check.c <<'SRC'
+          #include <stdio.h>
+          #include "viper_scpi/viper_scpi.h"
+          int main(void) {
+              printf("sizeof(viper_scpi_context_t) = %zu\n", sizeof(viper_scpi_context_t));
+              return sizeof(viper_scpi_context_t) < 2048 ? 0 : 1;
+          }
+          SRC
+          gcc -std=c99 -Iinclude size_check.c -o size_check
+          ./size_check
+
+  static-analysis:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy
+      - name: Run clang-tidy on the library
+        run: >
+          clang-tidy src/*.c
+          -checks='-*,clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters,-bugprone-narrowing-conversions'
+          -warnings-as-errors='*'
+          -- -std=c99 -Iinclude -Isrc
+
+  cortex-m:
+    name: Cross-compile for Cortex-M
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Build the library for Cortex-M4 and Cortex-M0+
+        run: |
+          for cpu in cortex-m4 cortex-m0plus; do
+            echo "== $cpu =="
+            mkdir -p "build-$cpu"
+            for f in src/*.c; do
+              arm-none-eabi-gcc -std=c99 -Os -mcpu=$cpu -mthumb -fno-pic -ffunction-sections -fdata-sections \
+                -Wall -Wextra -Wpedantic -Werror -Iinclude -Isrc \
+                -c "$f" -o "build-$cpu/$(basename "$f" .c).o"
+            done
+            arm-none-eabi-size build-$cpu/*.o
+            # No writable static data allowed in the library.
+            arm-none-eabi-size -t build-$cpu/*.o | awk 'END { if ($2 + $3 != 0) { print "unexpected .data/.bss: " $2 + $3; exit 1 } }'
+          done

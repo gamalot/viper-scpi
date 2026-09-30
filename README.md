@@ -1,5 +1,7 @@
 # viper-scpi
 
+[![CI](https://github.com/gamalot/viper-scpi/actions/workflows/ci.yml/badge.svg)](https://github.com/gamalot/viper-scpi/actions/workflows/ci.yml)
+
 An ultra-lightweight, zero-allocation, non-blocking SCPI parser for bare-metal
 microcontrollers, written in ISO C99. It is transport agnostic: feed it bytes
 from UART, USBTMC or a TCP socket, and it dispatches commands to your callbacks
@@ -228,6 +230,20 @@ ctest --test-dir build --output-on-failure
 Options: `VIPER_SCPI_BUILD_TESTS`, `VIPER_SCPI_BUILD_EXAMPLES`,
 `VIPER_SCPI_WERROR` (all `ON` except the last). To use the library from another
 CMake project, `add_subdirectory(viper-scpi)` and link `viper_scpi`.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and on pull requests:
+
+| Job | What it checks |
+| --- | --- |
+| `build-test` | GCC and Clang, Debug and Release, on Linux (and Clang on macOS), `-Werror`, CTest |
+| `sanitizers` | Full test suite, including the fuzz smoke test, under ASan and UBSan |
+| `strict-c99` | `-std=c99 -pedantic-errors -Wshadow -Wconversion ...`, no `malloc`/`free` references, context size below 2 KB |
+| `static-analysis` | `clang-tidy` (`clang-analyzer-*`, `bugprone-*`) on the library |
+| `cortex-m` | Cross-compiles for Cortex-M4 and M0+ with `arm-none-eabi-gcc`, prints code size, fails if the library has writable static data |
+
+The same checks can be run locally; see the commands in the workflow file.
 
 ## Limitations
 

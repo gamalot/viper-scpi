@@ -108,20 +108,20 @@ enum { KIND_QUERY = 1, KIND_COMMAND = 2, KIND_BOTH = 3 };
 
 static const struct {
     const char *name;
-    uint8_t kind;
     viper_scpi_cmd_callback_t handler;
+    uint8_t kind;
     bool takes_params;
 } common_cmds[] = {
-    { "IDN", KIND_QUERY, cmd_idn, false },
-    { "RST", KIND_COMMAND, cmd_rst, false },
-    { "CLS", KIND_COMMAND, cmd_cls, false },
-    { "OPC", KIND_BOTH, cmd_opc, false },
-    { "WAI", KIND_COMMAND, cmd_wai, false },
-    { "STB", KIND_QUERY, cmd_stb, false },
-    { "ESR", KIND_QUERY, cmd_esr, false },
-    { "ESE", KIND_BOTH, cmd_ese, true },
-    { "SRE", KIND_BOTH, cmd_sre, true },
-    { "TST", KIND_QUERY, cmd_tst, false },
+    { "IDN", cmd_idn, KIND_QUERY, false },
+    { "RST", cmd_rst, KIND_COMMAND, false },
+    { "CLS", cmd_cls, KIND_COMMAND, false },
+    { "OPC", cmd_opc, KIND_BOTH, false },
+    { "WAI", cmd_wai, KIND_COMMAND, false },
+    { "STB", cmd_stb, KIND_QUERY, false },
+    { "ESR", cmd_esr, KIND_QUERY, false },
+    { "ESE", cmd_ese, KIND_BOTH, true },
+    { "SRE", cmd_sre, KIND_BOTH, true },
+    { "TST", cmd_tst, KIND_QUERY, false },
 };
 
 viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
