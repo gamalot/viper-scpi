@@ -102,7 +102,7 @@ static void test_suffix_multiple(void)
     CHECK_STR(fx_out(), "1,4\n");
     fx_clear();
     fx_send("CHAN5:VOLT?;RANG6?");
-    CHECK_STR(fx_out(), "5;6,1\n");   /* indexes count within one header */
+    CHECK_STR(fx_out(), "5;5,6\n");   /* the inherited prefix counts */
 }
 
 static void test_suffix_optional_node(void)

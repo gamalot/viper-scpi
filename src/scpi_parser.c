@@ -129,10 +129,7 @@ viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx)
 
 /* ---- Tokenizer ----------------------------------------------------------- */
 
-typedef struct {
-    const char *str;
-    size_t len;
-} segment_t;
+typedef viper_scpi_token_t segment_t;
 
 /* True if a block starts at p[i]: '#' at the start of a parameter. */
 static size_t block_at(const char *p, size_t i, size_t n)
@@ -232,6 +229,19 @@ static bool suffix_push(viper_scpi_context_t *ctx, int32_t value)
     return true;
 }
 
+/* Records -1 for every suffix mnemonic of a fully skipped pattern. */
+static bool push_skipped_suffixes(viper_scpi_context_t *ctx, const char *pattern)
+{
+    viper_scpi_pattern_item_t it;
+
+    while (viper_scpi_pattern_next(&pattern, &it) == 1) {
+        if (it.has_suffix && !suffix_push(ctx, -1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* All segments are consumed: find an omittable node that has a callback. */
 static const viper_scpi_node_t *find_default(viper_scpi_context_t *ctx,
                                              const viper_scpi_node_t *list, unsigned depth)
@@ -244,10 +254,9 @@ static const viper_scpi_node_t *find_default(viper_scpi_context_t *ctx,
     for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
         const viper_scpi_node_t *hit;
 
-        if (!viper_scpi_node_is_optional(n->pattern)) {
-            continue;
-        }
-        if (viper_scpi_node_has_suffix(n->pattern) && !suffix_push(ctx, -1)) {
+        if (!viper_scpi_pattern_all_optional(n->pattern) ||
+            !push_skipped_suffixes(ctx, n->pattern)) {
+            ctx->suffix_count = saved;
             continue;
         }
         hit = (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
@@ -259,47 +268,71 @@ static const viper_scpi_node_t *find_default(viper_scpi_context_t *ctx,
     return NULL;
 }
 
+static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
+                                        const viper_scpi_node_t *list,
+                                        const segment_t *segs, size_t nseg, unsigned depth);
+
+/*
+ * Matches the remaining mnemonics of node @p n's pattern (starting at @p p)
+ * against @p segs, trying to consume optional mnemonics first and to skip
+ * them second. Once the pattern is used up, the remaining segments continue
+ * in the node's children.
+ */
+static const viper_scpi_node_t *match_items(viper_scpi_context_t *ctx,
+                                            const viper_scpi_node_t *n, const char *p,
+                                            const segment_t *segs, size_t nseg, unsigned depth)
+{
+    viper_scpi_pattern_item_t it;
+    uint8_t saved = ctx->suffix_count;
+    const viper_scpi_node_t *hit;
+    int32_t sfx;
+
+    switch (viper_scpi_pattern_next(&p, &it)) {
+    case 0:
+        if (nseg == 0) {
+            return (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
+        }
+        return resolve(ctx, n->children, segs, nseg, depth + 1);
+    case 1:
+        break;
+    default:
+        return NULL; /* malformed pattern */
+    }
+
+    if (nseg > 0 && viper_scpi_item_match(&it, segs[0].str, segs[0].len, &sfx) &&
+        (!it.has_suffix || suffix_push(ctx, sfx))) {
+        hit = match_items(ctx, n, p, segs + 1, nseg - 1, depth);
+        if (hit != NULL) {
+            return hit;
+        }
+        ctx->suffix_count = saved;
+    }
+    if (it.optional && (!it.has_suffix || suffix_push(ctx, -1))) {
+        hit = match_items(ctx, n, p, segs, nseg, depth);
+        if (hit != NULL) {
+            return hit;
+        }
+        ctx->suffix_count = saved;
+    }
+    return NULL;
+}
+
 /*
  * Matches @p segs against the tree below @p list, backtracking over optional
- * nodes. @p match_list receives the sibling list in which the last written
- * mnemonic matched; suffixes are recorded in ctx->suffix.
+ * mnemonics. Suffixes are recorded in ctx->suffix.
  */
 static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
                                         const viper_scpi_node_t *list,
-                                        const segment_t *segs, size_t nseg, unsigned depth,
-                                        const viper_scpi_node_t **match_list)
+                                        const segment_t *segs, size_t nseg, unsigned depth)
 {
-    uint8_t saved = ctx->suffix_count;
-
     if (list == NULL || depth > MAX_TREE_DEPTH) {
         return NULL;
     }
     for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
-        const viper_scpi_node_t *hit;
-        int32_t sfx;
-        bool has_sfx;
-
-        if (viper_scpi_node_match(n->pattern, segs[0].str, segs[0].len, &sfx, &has_sfx) &&
-            (!has_sfx || suffix_push(ctx, sfx))) {
-            if (nseg == 1) {
-                *match_list = list;
-                hit = (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
-            } else {
-                hit = resolve(ctx, n->children, segs + 1, nseg - 1, depth + 1, match_list);
-            }
-            if (hit != NULL) {
-                return hit;
-            }
-            ctx->suffix_count = saved;
-        }
-        /* An optional node may also be skipped without consuming a mnemonic. */
-        if (viper_scpi_node_is_optional(n->pattern) && n->children != NULL &&
-            (!viper_scpi_node_has_suffix(n->pattern) || suffix_push(ctx, -1))) {
-            hit = resolve(ctx, n->children, segs, nseg, depth + 1, match_list);
-            if (hit != NULL) {
-                return hit;
-            }
-            ctx->suffix_count = saved;
+        const viper_scpi_node_t *hit =
+            match_items(ctx, n, n->pattern, segs, nseg, depth);
+        if (hit != NULL) {
+            return hit;
         }
     }
     return NULL;
@@ -311,14 +344,18 @@ static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *
     size_t nseg = 0;
     size_t pos = 0;
     size_t st;
-    const viper_scpi_node_t *parent = NULL;
     const viper_scpi_node_t *node;
 
     ctx->suffix_count = 0;
 
+    /* A leading ':' is absolute; otherwise the header is appended to the path
+     * of the previous command without its last mnemonic (SCPI 6.2.1). */
     if (h[0] == ':') {
-        ctx->level = NULL;
+        ctx->prefix_count = 0;
         pos = 1;
+    }
+    for (; nseg < ctx->prefix_count; nseg++) {
+        segs[nseg] = ctx->prefix[nseg];
     }
     if (hlen > pos && h[hlen - 1] == '?') {
         ctx->is_query = 1;
@@ -351,24 +388,20 @@ static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *
         }
     }
 
-    if (ctx->level != NULL) {
-        node = resolve(ctx, ctx->level, segs, nseg, 0, &parent);
-    } else {
-        node = resolve(ctx, ctx->cfg->root, segs, nseg, 0, &parent);
-        if (node == NULL) {
-            ctx->suffix_count = 0;
-            node = resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0, &parent);
-        }
+    node = resolve(ctx, ctx->cfg->root, segs, nseg, 0);
+    if (node == NULL) {
+        ctx->suffix_count = 0;
+        node = resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0);
     }
     if (node == NULL) {
         return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
 
-    /* Later commands without a leading ':' are relative to the list in which
-     * the last written mnemonic matched (the children of its parent). */
-    if (nseg > 1) {
-        ctx->level = parent;
+    /* Remember everything but the last mnemonic for relative headers. */
+    for (size_t i = 0; i + 1 < nseg; i++) {
+        ctx->prefix[i] = segs[i];
     }
+    ctx->prefix_count = (uint8_t)(nseg - 1);
     return node->callback(ctx);
 }
 
@@ -421,7 +454,7 @@ static void execute_line(viper_scpi_context_t *ctx)
     size_t start = 0;
     char quote = 0;
 
-    ctx->level = NULL;
+    ctx->prefix_count = 0;
     ctx->line_has_output = 0;
 
     for (size_t i = 0; i <= ctx->length; i++) {

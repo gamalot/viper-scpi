@@ -16,6 +16,8 @@ double g_limit;
 int32_t g_pcount;
 uint8_t g_block[32];
 size_t g_block_len;
+double g_num;
+double g_vlim;
 
 static char s_out[512];
 static size_t s_out_len;
@@ -220,6 +222,101 @@ static viper_scpi_result_t cb_block(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
+static viper_scpi_result_t cb_trig_src(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "TRIGSRC");
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_calc_state(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 0, 1));
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_route_layer(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "LAYER");
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_route_count(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "COUNT");
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_broken(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "BROKEN");
+    return VIPER_SCPI_RES_OK;
+}
+
+/* Generic setter/getter for a number with a unit table. */
+static viper_scpi_result_t unit_cmd(viper_scpi_context_t *ctx, const viper_scpi_unit_t *units)
+{
+    if (viper_scpi_is_query(ctx)) {
+        viper_scpi_result_double(ctx, g_num);
+        return VIPER_SCPI_RES_OK;
+    }
+    return viper_scpi_param_double_unit(ctx, 0, units, &g_num);
+}
+
+static viper_scpi_result_t cb_freq(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_hertz);
+}
+
+static viper_scpi_result_t cb_res(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_ohm);
+}
+
+static viper_scpi_result_t cb_amps(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_amp);
+}
+
+static viper_scpi_result_t cb_cap(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_farad);
+}
+
+static viper_scpi_result_t cb_time(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_second);
+}
+
+static viper_scpi_result_t cb_ctmp(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_celsius);
+}
+
+static viper_scpi_result_t cb_watt(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_watt);
+}
+
+static viper_scpi_result_t cb_ind(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_henry);
+}
+
+static viper_scpi_result_t cb_gain(viper_scpi_context_t *ctx)
+{
+    return unit_cmd(ctx, viper_scpi_units_decibel);
+}
+
+static viper_scpi_result_t cb_vlim(viper_scpi_context_t *ctx)
+{
+    if (viper_scpi_is_query(ctx)) {
+        viper_scpi_result_double(ctx, g_vlim);
+        return VIPER_SCPI_RES_OK;
+    }
+    return viper_scpi_param_double_unit_kw(ctx, 0, viper_scpi_units_volt, -10.0, 10.0, 1.0,
+                                           &g_vlim);
+}
+
 static const viper_scpi_node_t meas_volt_children[] = {
     { "DC", cb_meas_dc, NULL },
     { "PAIR", cb_meas_pair, NULL },
@@ -261,7 +358,26 @@ static const viper_scpi_node_t chan_children[] = {
     { "[BANK#]", NULL, bank_children },
     VIPER_SCPI_NODE_END
 };
+static const viper_scpi_node_t route_layer_children[] = {
+    { "COUNt", cb_route_count, NULL },
+    VIPER_SCPI_NODE_END
+};
 static const viper_scpi_node_t root[] = {
+    { "TRIGger[:SEQuence]:SOURce", cb_trig_src, NULL },
+    { "CALCulate#[:MATH]:STATe", cb_calc_state, NULL },
+    { "ROUTe:LAYer[:SUB]", cb_route_layer, route_layer_children },
+    { "BROKen[:X", cb_broken, NULL },
+    { "[]", cb_broken, NULL },
+    { "FREQuency", cb_freq, NULL },
+    { "RESistance", cb_res, NULL },
+    { "AMPS", cb_amps, NULL },
+    { "CAPacitance", cb_cap, NULL },
+    { "TIMe", cb_time, NULL },
+    { "CTMP", cb_ctmp, NULL },
+    { "WATT", cb_watt, NULL },
+    { "IND", cb_ind, NULL },
+    { "GAIN", cb_gain, NULL },
+    { "VLIMit", cb_vlim, NULL },
     { "[SENSe]", NULL, sense_children },
     { "POWer", NULL, power_children },
     { "CHANnel#", NULL, chan_children },
@@ -302,6 +418,8 @@ void fx_setup(void)
     g_name[0] = '\0';
     g_reset_calls = 0;
     g_limit = 1.0;
+    g_num = 0;
+    g_vlim = 1.0;
     g_pcount = 0;
     g_block_len = 0;
     memset(g_block, 0, sizeof g_block);

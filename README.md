@@ -7,7 +7,7 @@ and writes responses through a function pointer you provide.
 
 - No `malloc`/`free`, no RTOS, no blocking or polling.
 - Command tree lives in `const` data (Flash); the parser context is one static
-  struct (about 330 bytes with the default limits, well under 2 KB).
+  struct (about 470 bytes with the default limits, well under 2 KB).
 - Builds warning-free with `-Wall -Wextra -Wpedantic` (GCC and Clang).
 
 ## Features
@@ -15,17 +15,21 @@ and writes responses through a function pointer you provide.
 - Hierarchical commands (`:MEASure:VOLTage:DC?`), case-insensitive, short and
   long forms (`MEAS` / `MEASURE`), leading `:` for absolute paths.
 - Multiple commands per line separated by `;`, with SCPI relative-path rules:
-  `SOUR:VOLT 1;CURR 2` resolves `CURR` under `SOURce`; a leading `:` returns to
-  the root; common commands (`*...`) do not change the current path.
+  a header without a leading `:` extends the previous header minus its last
+  mnemonic, so `SOUR:VOLT 1;CURR 2` resolves `CURR` as `SOUR:CURR`; a leading
+  `:` returns to the root; common commands (`*...`) do not change the path.
 - Parameter helpers: integers (decimal, `0x` / `#H` hex, `#B` binary, `#Q`
   octal), floating point with exponent, booleans (`ON`/`OFF`/`1`/`0`), keyword
   choices (short/long form), quoted strings (`"..."` / `'...'`, doubled quotes
   as escape).
-- Optional nodes (`"[LEVel]"`): `SOUR:VOLT` and `SOUR:VOLT:LEV` reach the same
-  callback; optional intermediate nodes (`"[SENSe]"`) may be omitted too.
+- Optional mnemonics in the SCPI notation: `"VOLTage[:LEVel]"`,
+  `"TRIGger[:SEQuence]:SOURce"`, `"[SENSe]"`. Omitted parts may be written or
+  left out.
 - Numeric suffixes (`"CHANnel#"`): `CHAN`, `CHAN2` and `CHANNEL12` match; read
   the number with `viper_scpi_suffix()`.
 - `MINimum` / `MAXimum` / `DEFault` numeric keywords with range checking.
+- Numbers with units and multipliers (`1.5KHZ`, `100 mV`, `10MHZ`, `2MIN`),
+  driven by unit tables (ready-made ones for V, A, Hz, ohm, W, F, H, dB, s, degC).
 - IEEE 488.2 arbitrary block data, definite (`#15hello`) and indefinite
   (`#0...`), as parameters and as responses.
 - IEEE 488.2 commands: `*IDN?`, `*RST`, `*CLS`, `*OPC`, `*OPC?`, `*WAI`,
@@ -81,32 +85,68 @@ terminated by `VIPER_SCPI_NODE_END`.
   and children (as `SYSTem:ERRor` does).
 - `children` is `NULL` for leaves.
 
-## Optional nodes and numeric suffixes
+## Node patterns: optional mnemonics and numeric suffixes
+
+A node `pattern` is a path of one or more mnemonics separated by `:`.
 
 ```c
-static const viper_scpi_node_t bank_nodes[] = { { "ID", cmd_id, NULL }, VIPER_SCPI_NODE_END };
-static const viper_scpi_node_t chan_nodes[] = {
-    { "VOLTage", cmd_volt, NULL },
-    { "[BANK#]", NULL, bank_nodes },       /* optional and suffixed */
-    VIPER_SCPI_NODE_END
-};
 static const viper_scpi_node_t root[] = {
-    { "[SENSe]", NULL, sense_nodes },      /* SENS:TEMP? == TEMP? */
-    { "CHANnel#", NULL, chan_nodes },      /* CHAN2:VOLT? */
+    { "TRIGger[:SEQuence]:SOURce", cmd_trig_src, NULL },  /* TRIG:SOUR, TRIG:SEQ:SOUR */
+    { "SOURce", NULL, source_nodes },
+    { "[SENSe]", NULL, sense_nodes },                     /* SENS:TEMP? == TEMP? */
+    { "CHANnel#", NULL, chan_nodes },                     /* CHAN2:VOLT? */
+    { "CALCulate#[:MATH]:STATe", cmd_calc_state, NULL },  /* CALC2:MATH:STAT? */
     VIPER_SCPI_NODE_END
 };
 ```
 
-- A `[NODE]` may be left out of the header. Nodes that have children and no
-  callback also resolve to an omittable child that has a callback, so with
-  `POWer` -> `[LEVel]`, `POW?` equals `POW:LEV?`. Relative paths follow what
-  was written: after `POW?` the path stays at the root.
-- `viper_scpi_suffix(ctx, i, default)` returns the suffix of the i-th `#` node
-  in the matched path, counting from the left. Omitted suffixes, and skipped
-  optional `#` nodes, keep their position and yield `default`
-  (`CHAN:VOLT?` -> `viper_scpi_suffix(ctx, 0, 1) == 1`). Indexes count within
-  the header being executed, not the inherited relative path. Suffixes have at
-  most 9 digits; up to `VIPER_SCPI_MAX_SUFFIXES` per header are recorded.
+- `[:NAME]` or `[NAME]` marks a mnemonic that may be left out; brackets do not
+  nest. Mandatory mnemonics must be present. A node whose mnemonics are all
+  optional can vanish from the header, so with `POWer` -> `[LEVel]` a bare
+  `POW?` runs the `LEVel` callback.
+- Children continue after the whole pattern: with
+  `{ "ROUTe:LAYer[:SUB]", cb, layer_nodes }`, both `ROUT:LAY:COUN?` and
+  `ROUT:LAY:SUB:COUN?` reach `COUNt` in `layer_nodes`.
+- A malformed pattern (for example an unclosed bracket) never matches.
+- `NAME#` accepts a numeric suffix. `viper_scpi_suffix(ctx, i, default)` returns
+  the suffix of the i-th `#` mnemonic of the full path, counted from the left.
+  Omitted suffixes, and skipped optional `#` mnemonics, keep their position and
+  yield `default` (`CHAN:VOLT?` gives `viper_scpi_suffix(ctx, 0, 1) == 1`).
+  Suffixes have at most 9 digits; up to `VIPER_SCPI_MAX_SUFFIXES` are recorded
+  per command.
+- The path includes the inherited prefix: in `CHAN5:VOLT?;RANG6?` the second
+  command sees suffixes 5 and 6.
+
+## Numbers with units
+
+```c
+double hz;
+res = viper_scpi_param_double_unit(ctx, 0, viper_scpi_units_hertz, &hz);
+res = viper_scpi_param_double_unit_kw(ctx, 0, viper_scpi_units_volt,
+                                      0.0, 30.0, 5.0, &volts);   /* + MIN/MAX/DEF */
+```
+
+The result is in base units (`1.5KHZ` gives 1500.0). A bare number is accepted
+as well. Multipliers are `EX PE T G MA K M U N P F A` (case-insensitive):
+`MA` is mega and `M` is milli (`10MA` on amps is 10 mA), except for units with
+`VIPER_SCPI_UNIT_M_IS_MEGA`, where `MHZ` and `MOHM` mean mega as the standard
+requires. A suffix that is not in the table, or a prefix on a unit that forbids
+it, returns `-131` (invalid suffix). Use `1E-3` for milliohm.
+
+Tables are `{ name, scale, flags }` arrays ending with a NULL name, so you can
+define your own:
+
+```c
+static const viper_scpi_unit_t pressure[] = {
+    { "PA", 1.0, 0 },                                   /* KPA, MPA, ... */
+    { "BAR", 1e5, VIPER_SCPI_UNIT_NO_PREFIX },
+    { NULL, 0, 0 }
+};
+```
+
+Ready-made tables: `viper_scpi_units_volt`, `_amp`, `_hertz`, `_ohm`, `_watt`,
+`_farad`, `_henry`, `_decibel`, `_second` (S, SEC, MIN, HOUR) and `_celsius`.
+The plain `viper_scpi_param_double()` still rejects units.
 
 ## MIN / MAX / DEF
 
@@ -191,9 +231,9 @@ CMake project, `add_subdirectory(viper-scpi)` and link `viper_scpi`.
 
 ## Limitations
 
-- Optional nodes are declared per node (`"[NAME]"`); the SCPI notation
-  `A[:B]:C` inside a single pattern string is not parsed.
+- Optional brackets in patterns do not nest (`[:A[:B]]`).
 - `UP`/`DOWN` and `INFinity`/`NAN` numeric keywords are not implemented.
+- Unit conversion is multiplicative only (no offsets such as degF).
 - Floating point I/O uses `strtod`/`snprintf` from the C library.
 - Commands execute synchronously, so `*WAI` and `*OPC` complete immediately.
 

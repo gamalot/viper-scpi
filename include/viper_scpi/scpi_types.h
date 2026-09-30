@@ -24,6 +24,7 @@ typedef enum {
     VIPER_SCPI_RES_ERR_MISSING_PARAM = -109,    /**< Missing parameter */
     VIPER_SCPI_RES_ERR_MNEMONIC_TOO_LONG = -112,/**< Program mnemonic too long */
     VIPER_SCPI_RES_ERR_UNDEFINED_HEADER = -113, /**< Undefined header */
+    VIPER_SCPI_RES_ERR_INVALID_SUFFIX = -131,   /**< Invalid suffix (unit) */
     VIPER_SCPI_RES_ERR_EXECUTION = -200,        /**< Execution error */
     VIPER_SCPI_RES_ERR_PARAM_INVALID = -220,    /**< Parameter error */
     VIPER_SCPI_RES_ERR_OUT_OF_RANGE = -222,     /**< Data out of range */
@@ -63,12 +64,15 @@ typedef viper_scpi_result_t (*viper_scpi_cmd_callback_t)(viper_scpi_context_t *c
  * upper-case letters is the short form, the whole string is the long form
  * ("VOLTage" matches VOLT and VOLTAGE, case-insensitively).
  *
- * Two pattern decorations are supported:
- *  - "[LEVel]"  optional node: it may be omitted from the header, so
- *               SOUR:VOLT and SOUR:VOLT:LEV reach the same callback.
+ * A pattern is a path of one or more mnemonics separated by ':' and may use
+ * two decorations:
+ *  - "[:LEVel]" or "[LEVel]"  optional mnemonic that may be omitted from the
+ *               header. "VOLTage[:LEVel]" matches VOLT and VOLT:LEV.
  *  - "CHANnel#" numeric suffix: CHAN, CHAN2 and CHANNEL12 all match; the
  *               number is read with viper_scpi_suffix().
- * They combine as "[CHANnel#]". Sibling arrays are terminated by
+ * They combine, e.g. "TRIGger[:SEQuence]:SOURce" or "[CHANnel#]". Optional
+ * brackets do not nest. A node whose mnemonics are all optional may be left
+ * out of the header entirely. Sibling arrays are terminated by
  * VIPER_SCPI_NODE_END.
  */
 typedef struct viper_scpi_node_s {
@@ -79,6 +83,19 @@ typedef struct viper_scpi_node_s {
 
 /** List terminator for arrays of viper_scpi_node_t. */
 #define VIPER_SCPI_NODE_END { NULL, NULL, NULL }
+
+/** Unit flags for viper_scpi_unit_t. */
+enum {
+    VIPER_SCPI_UNIT_NO_PREFIX = 1, /**< No multiplier prefix (MIN, HOUR, CEL) */
+    VIPER_SCPI_UNIT_M_IS_MEGA = 2  /**< "M" means mega, not milli (MHZ, MOHM) */
+};
+
+/** Unit for viper_scpi_param_double_unit(); tables end with a NULL name. */
+typedef struct {
+    const char *name;  /**< Case-insensitive, e.g. "HZ" */
+    double scale;      /**< Factor to the base unit (1.0 unless e.g. MIN = 60) */
+    uint8_t flags;     /**< VIPER_SCPI_UNIT_* */
+} viper_scpi_unit_t;
 
 /** Keyword/value pair for viper_scpi_param_choice(); lists end with NULL name. */
 typedef struct {
@@ -120,13 +137,14 @@ struct viper_scpi_context_s {
     void *user_data;
     char buffer[VIPER_SCPI_BUFFER_SIZE];
     size_t length;
-    const viper_scpi_node_t *level;  /**< Relative-path base; NULL = root */
+    viper_scpi_token_t prefix[VIPER_SCPI_MAX_RECURSION_DEPTH]; /**< Relative-path base */
     viper_scpi_token_t params[VIPER_SCPI_MAX_PARAMS];
     size_t param_count;
     int16_t err_queue[VIPER_SCPI_ERROR_QUEUE_SIZE];
     int32_t suffix[VIPER_SCPI_MAX_SUFFIXES]; /**< -1 = suffix omitted */
     uint32_t block_remaining;
     uint8_t suffix_count;
+    uint8_t prefix_count;
     uint8_t block_state;
     uint8_t block_digits;
     char quote;

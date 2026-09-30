@@ -82,6 +82,35 @@ viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, s
                                               int32_t *out);
 
 /**
+ * Number with an optional SCPI unit suffix, converted to the base unit.
+ * Accepts "1.5KHZ", "100 mV", "2.5E3HZ", "5MA" and a bare number (no unit).
+ * Multipliers: EX PE T G MA K M U N P F A (MA = mega, M = milli, except where
+ * a unit sets VIPER_SCPI_UNIT_M_IS_MEGA, e.g. MHZ). @p units lists the unit
+ * names accepted. An unknown or disallowed suffix gives INVALID_SUFFIX (-131).
+ */
+viper_scpi_result_t viper_scpi_param_double_unit(const viper_scpi_context_t *ctx, size_t idx,
+                                                 const viper_scpi_unit_t *units, double *out);
+
+/** viper_scpi_param_double_unit() combined with MIN/MAX/DEF and a range check
+ *  (in base units), like viper_scpi_param_double_kw(). */
+viper_scpi_result_t viper_scpi_param_double_unit_kw(const viper_scpi_context_t *ctx, size_t idx,
+                                                    const viper_scpi_unit_t *units,
+                                                    double min, double max, double def,
+                                                    double *out);
+
+/** Ready-made unit tables. */
+extern const viper_scpi_unit_t viper_scpi_units_volt[];    /* V */
+extern const viper_scpi_unit_t viper_scpi_units_amp[];     /* A */
+extern const viper_scpi_unit_t viper_scpi_units_hertz[];   /* HZ, MHZ = mega */
+extern const viper_scpi_unit_t viper_scpi_units_ohm[];     /* OHM, MOHM = mega */
+extern const viper_scpi_unit_t viper_scpi_units_watt[];    /* W */
+extern const viper_scpi_unit_t viper_scpi_units_farad[];   /* F */
+extern const viper_scpi_unit_t viper_scpi_units_henry[];   /* H */
+extern const viper_scpi_unit_t viper_scpi_units_decibel[]; /* DB */
+extern const viper_scpi_unit_t viper_scpi_units_second[];  /* S, SEC, MIN, HOUR */
+extern const viper_scpi_unit_t viper_scpi_units_celsius[]; /* CEL */
+
+/**
  * IEEE 488.2 arbitrary block data: definite length (#<n><length><data>) or
  * indefinite length (#0<data>, which must be the last item of the line).
  * @p data points into the line buffer and is valid only during the callback.

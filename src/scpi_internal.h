@@ -14,13 +14,25 @@ static inline bool viper_scpi_is_space(char c)
     return c == ' ' || c == '\t';
 }
 
-/** Node pattern match honouring "[optional]" and "NAME#" decorations.
- *  @p suffix receives the number or -1 if omitted; @p has_suffix tells
- *  whether the pattern takes a suffix at all. */
-bool viper_scpi_node_match(const char *pattern, const char *tok, size_t len,
-                           int32_t *suffix, bool *has_suffix);
-bool viper_scpi_node_is_optional(const char *pattern);
-bool viper_scpi_node_has_suffix(const char *pattern);
+/** One mnemonic of a node pattern such as "TRIGger[:SEQuence]:SOURce". */
+typedef struct {
+    const char *name;   /**< Without brackets and without a trailing '#' */
+    size_t len;
+    bool optional;
+    bool has_suffix;
+} viper_scpi_pattern_item_t;
+
+/** Advance @p *p to the next mnemonic. Returns 1 (item stored), 0 (end) or
+ *  -1 (malformed pattern, which never matches). */
+int viper_scpi_pattern_next(const char **p, viper_scpi_pattern_item_t *item);
+
+/** True if every mnemonic of @p pattern is optional (and it is well formed). */
+bool viper_scpi_pattern_all_optional(const char *pattern);
+
+/** Match one header mnemonic against a pattern item. @p suffix receives the
+ *  number, or -1 if omitted. */
+bool viper_scpi_item_match(const viper_scpi_pattern_item_t *item, const char *tok,
+                           size_t len, int32_t *suffix);
 
 /**
  * If @p p (n bytes remaining, p[0] == '#') starts a complete block, returns

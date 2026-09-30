@@ -29,40 +29,73 @@ bool viper_scpi_pattern_match(const char *pattern, const char *tok, size_t len)
     return match_name(pattern, strlen(pattern), tok, len);
 }
 
-bool viper_scpi_node_is_optional(const char *pattern)
+int viper_scpi_pattern_next(const char **p, viper_scpi_pattern_item_t *item)
 {
-    size_t n = strlen(pattern);
+    const char *q = *p;
+    const char *name;
 
-    return n >= 2 && pattern[0] == '[' && pattern[n - 1] == ']';
+    while (*q == ':') {
+        q++;
+    }
+    if (*q == '\0') {
+        return 0;
+    }
+    item->optional = false;
+    if (*q == '[') {
+        q++;
+        while (*q == ':') {
+            q++;
+        }
+        name = q;
+        while (*q != '\0' && *q != ']' && *q != ':' && *q != '[') {
+            q++;
+        }
+        if (*q != ']') {
+            return -1;
+        }
+        item->optional = true;
+        item->len = (size_t)(q - name);
+        q++;
+    } else {
+        name = q;
+        while (*q != '\0' && *q != ':' && *q != '[' && *q != ']') {
+            q++;
+        }
+        item->len = (size_t)(q - name);
+    }
+    item->has_suffix = item->len > 0 && name[item->len - 1] == '#';
+    if (item->has_suffix) {
+        item->len--;
+    }
+    if (item->len == 0) {
+        return -1;
+    }
+    item->name = name;
+    *p = q;
+    return 1;
 }
 
-bool viper_scpi_node_has_suffix(const char *pattern)
+bool viper_scpi_pattern_all_optional(const char *pattern)
 {
-    size_t n = strlen(pattern);
+    viper_scpi_pattern_item_t it;
+    int r;
 
-    if (viper_scpi_node_is_optional(pattern)) {
-        n--;
+    while ((r = viper_scpi_pattern_next(&pattern, &it)) == 1) {
+        if (!it.optional) {
+            return false;
+        }
     }
-    return n > 0 && pattern[n - 1] == '#';
+    return r == 0;
 }
 
-bool viper_scpi_node_match(const char *pattern, const char *tok, size_t len,
-                           int32_t *suffix, bool *has_suffix)
+bool viper_scpi_item_match(const viper_scpi_pattern_item_t *item, const char *tok,
+                           size_t len, int32_t *suffix)
 {
-    size_t plen = strlen(pattern);
-
-    if (viper_scpi_node_is_optional(pattern)) {
-        pattern++;
-        plen -= 2;
-    }
-    *has_suffix = false;
     *suffix = -1;
-    if (plen > 0 && pattern[plen - 1] == '#') {
+    if (item->has_suffix) {
         size_t d = 0;
         int32_t v = 0;
 
-        plen--;
-        *has_suffix = true;
         while (d < len && tok[len - 1 - d] >= '0' && tok[len - 1 - d] <= '9') {
             d++;
         }
@@ -77,7 +110,7 @@ bool viper_scpi_node_match(const char *pattern, const char *tok, size_t len,
         }
         len -= d;
     }
-    return match_name(pattern, plen, tok, len);
+    return match_name(item->name, item->len, tok, len);
 }
 
 int32_t viper_scpi_suffix(const viper_scpi_context_t *ctx, size_t index, int32_t default_value)
@@ -516,5 +549,200 @@ viper_scpi_result_t viper_scpi_param_block(const viper_scpi_context_t *ctx, size
     header = (s[1] == '0') ? 2u : 2u + (size_t)(s[1] - '0');
     *data = (const uint8_t *)(s + header);
     *len = n - header;
+    return VIPER_SCPI_RES_OK;
+}
+
+/* ---- Numbers with units ------------------------------------------------------------------------ */
+
+const viper_scpi_unit_t viper_scpi_units_volt[] = { { "V", 1.0, 0 }, { NULL, 0, 0 } };
+const viper_scpi_unit_t viper_scpi_units_amp[] = { { "A", 1.0, 0 }, { NULL, 0, 0 } };
+const viper_scpi_unit_t viper_scpi_units_hertz[] = {
+    { "HZ", 1.0, VIPER_SCPI_UNIT_M_IS_MEGA }, { NULL, 0, 0 }
+};
+const viper_scpi_unit_t viper_scpi_units_ohm[] = {
+    { "OHM", 1.0, VIPER_SCPI_UNIT_M_IS_MEGA }, { NULL, 0, 0 }
+};
+const viper_scpi_unit_t viper_scpi_units_watt[] = { { "W", 1.0, 0 }, { NULL, 0, 0 } };
+const viper_scpi_unit_t viper_scpi_units_farad[] = { { "F", 1.0, 0 }, { NULL, 0, 0 } };
+const viper_scpi_unit_t viper_scpi_units_henry[] = { { "H", 1.0, 0 }, { NULL, 0, 0 } };
+const viper_scpi_unit_t viper_scpi_units_decibel[] = { { "DB", 1.0, 0 }, { NULL, 0, 0 } };
+const viper_scpi_unit_t viper_scpi_units_second[] = {
+    { "S", 1.0, 0 },
+    { "SEC", 1.0, 0 },
+    { "MIN", 60.0, VIPER_SCPI_UNIT_NO_PREFIX },
+    { "HOUR", 3600.0, VIPER_SCPI_UNIT_NO_PREFIX },
+    { NULL, 0, 0 }
+};
+const viper_scpi_unit_t viper_scpi_units_celsius[] = {
+    { "CEL", 1.0, VIPER_SCPI_UNIT_NO_PREFIX }, { NULL, 0, 0 }
+};
+
+static const struct {
+    const char *name;
+    double factor;
+} prefixes[] = {
+    { "EX", 1e18 }, { "PE", 1e15 }, { "MA", 1e6 }, { "T", 1e12 }, { "G", 1e9 },
+    { "K", 1e3 }, { "M", 1e-3 }, { "U", 1e-6 }, { "N", 1e-9 }, { "P", 1e-12 },
+    { "F", 1e-15 }, { "A", 1e-18 },
+};
+
+static bool equals_nocase(const char *a, size_t alen, const char *b)
+{
+    if (strlen(b) != alen) {
+        return false;
+    }
+    for (size_t i = 0; i < alen; i++) {
+        if (viper_scpi_upper(a[i]) != viper_scpi_upper(b[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Resolves a suffix such as "MV" or "KHZ" to a factor to the base unit. */
+static bool lookup_unit(const viper_scpi_unit_t *units, const char *sfx, size_t n,
+                        double *factor)
+{
+    for (const viper_scpi_unit_t *u = units; u->name != NULL; u++) {
+        if (equals_nocase(sfx, n, u->name)) {
+            *factor = u->scale;
+            return true;
+        }
+    }
+    for (const viper_scpi_unit_t *u = units; u->name != NULL; u++) {
+        if ((u->flags & VIPER_SCPI_UNIT_NO_PREFIX) != 0) {
+            continue;
+        }
+        for (size_t i = 0; i < sizeof prefixes / sizeof prefixes[0]; i++) {
+            size_t pl = strlen(prefixes[i].name);
+            double f = prefixes[i].factor;
+
+            if (n <= pl || !equals_nocase(sfx, pl, prefixes[i].name) ||
+                !equals_nocase(sfx + pl, n - pl, u->name)) {
+                continue;
+            }
+            if (pl == 1 && prefixes[i].name[0] == 'M' &&
+                (u->flags & VIPER_SCPI_UNIT_M_IS_MEGA) != 0) {
+                f = 1e6;
+            }
+            *factor = f * u->scale;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Length of the leading number: [sign] digits [. digits] [E [sign] digits]. */
+static size_t scan_number(const char *s, size_t n)
+{
+    size_t i = 0;
+    size_t digits = 0;
+
+    if (i < n && (s[i] == '+' || s[i] == '-')) {
+        i++;
+    }
+    while (i < n && s[i] >= '0' && s[i] <= '9') {
+        i++;
+        digits++;
+    }
+    if (i < n && s[i] == '.') {
+        i++;
+        while (i < n && s[i] >= '0' && s[i] <= '9') {
+            i++;
+            digits++;
+        }
+    }
+    if (digits == 0) {
+        return 0;
+    }
+    /* An exponent needs digits; otherwise the 'E' starts a unit (EX = exa). */
+    if (i < n && viper_scpi_upper(s[i]) == 'E') {
+        size_t j = i + 1;
+        if (j < n && (s[j] == '+' || s[j] == '-')) {
+            j++;
+        }
+        if (j < n && s[j] >= '0' && s[j] <= '9') {
+            while (j < n && s[j] >= '0' && s[j] <= '9') {
+                j++;
+            }
+            i = j;
+        }
+    }
+    return i;
+}
+
+viper_scpi_result_t viper_scpi_param_double_unit(const viper_scpi_context_t *ctx, size_t idx,
+                                                 const viper_scpi_unit_t *units, double *out)
+{
+    const char *s;
+    size_t n;
+    size_t num;
+    char tmp[48];
+    double v;
+    double factor = 1.0;
+    viper_scpi_result_t res;
+
+    if (units == NULL || out == NULL) {
+        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
+    }
+    res = viper_scpi_param_raw(ctx, idx, &s, &n);
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    num = scan_number(s, n);
+    if (num == 0 || num >= sizeof tmp) {
+        return VIPER_SCPI_RES_ERR_DATA_TYPE;
+    }
+    memcpy(tmp, s, num);
+    tmp[num] = '\0';
+    v = strtod(tmp, NULL);
+
+    while (num < n && viper_scpi_is_space(s[num])) {
+        num++;
+    }
+    if (num < n) {
+        for (size_t i = num; i < n; i++) {
+            char c = viper_scpi_upper(s[i]);
+            if (c < 'A' || c > 'Z') {
+                return VIPER_SCPI_RES_ERR_INVALID_SUFFIX;
+            }
+        }
+        if (!lookup_unit(units, s + num, n - num, &factor)) {
+            return VIPER_SCPI_RES_ERR_INVALID_SUFFIX;
+        }
+        v *= factor;
+    }
+    if (v > 1.7976931348623157e308 || v < -1.7976931348623157e308) {
+        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+    }
+    *out = v;
+    return VIPER_SCPI_RES_OK;
+}
+
+viper_scpi_result_t viper_scpi_param_double_unit_kw(const viper_scpi_context_t *ctx, size_t idx,
+                                                    const viper_scpi_unit_t *units,
+                                                    double min, double max, double def,
+                                                    double *out)
+{
+    keyword_t kw;
+    double v;
+    viper_scpi_result_t res;
+
+    if (out == NULL || min > max) {
+        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
+    }
+    kw = numeric_keyword(ctx, idx);
+    if (kw != KW_NONE) {
+        *out = kw == KW_MIN ? min : (kw == KW_MAX ? max : def);
+        return VIPER_SCPI_RES_OK;
+    }
+    res = viper_scpi_param_double_unit(ctx, idx, units, &v);
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    if (v < min || v > max) {
+        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+    }
+    *out = v;
     return VIPER_SCPI_RES_OK;
 }

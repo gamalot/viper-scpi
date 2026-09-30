@@ -31,6 +31,20 @@ extern int g_failures;
         }                                                                    \
     } while (0)
 
+#define CHECK_NEAR(actual, expected)                                         \
+    do {                                                                     \
+        double a_ = (actual);                                                \
+        double e_ = (expected);                                              \
+        double d_ = a_ > e_ ? a_ - e_ : e_ - a_;                             \
+        double m_ = e_ < 0 ? -e_ : e_;                                       \
+        g_checks++;                                                          \
+        if (d_ > m_ * 1e-12) {                                               \
+            g_failures++;                                                    \
+            printf("FAIL %s:%d: %s = %.17g, expected %.17g\n", __FILE__,     \
+                   __LINE__, #actual, a_, e_);                               \
+        }                                                                    \
+    } while (0)
+
 #define CHECK_STR(actual, expected)                                          \
     do {                                                                     \
         const char *a_ = (actual);                                           \
@@ -57,6 +71,8 @@ extern double g_limit;
 extern int32_t g_pcount;
 extern uint8_t g_block[32];
 extern size_t g_block_len;
+extern double g_num;    /* last value set by the unit commands */
+extern double g_vlim;
 
 /** Re-initialise the context, tree state and output capture. */
 void fx_setup(void);
