@@ -3,7 +3,7 @@ target_link_libraries(test_fixture PUBLIC viper_scpi)
 target_include_directories(test_fixture PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(test_fixture PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 
-foreach(name test_parser test_params test_ieee488 test_error)
+foreach(name test_parser test_params test_ieee488 test_error test_extras)
     add_executable(${name} ${name}.c)
     target_link_libraries(${name} PRIVATE test_fixture)
     set_target_properties(${name} PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)

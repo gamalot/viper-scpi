@@ -37,6 +37,15 @@ void *viper_scpi_user_data(const viper_scpi_context_t *ctx);
 /** True if the command being executed was a query (header ended in '?'). */
 bool viper_scpi_is_query(const viper_scpi_context_t *ctx);
 
+/**
+ * Numeric suffix of the @p index-th suffix-capable ("NAME#") node of the
+ * matched header, counted from the left. Returns @p default_value when the
+ * suffix was omitted (e.g. "CHAN:VOLT?" for "CHANnel#") or @p index is out
+ * of range.
+ */
+int32_t viper_scpi_suffix(const viper_scpi_context_t *ctx, size_t index,
+                          int32_t default_value);
+
 /** Case-insensitive long/short form match of @p tok against @p pattern. */
 bool viper_scpi_pattern_match(const char *pattern, const char *tok, size_t len);
 
@@ -59,6 +68,27 @@ viper_scpi_result_t viper_scpi_param_uint32(const viper_scpi_context_t *ctx, siz
 viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, size_t idx,
                                             double *out);
 
+/**
+ * Number or MINimum / MAXimum / DEFault keyword. A keyword resolves to
+ * @p min, @p max or @p def; a number must lie within [min, max]
+ * (OUT_OF_RANGE otherwise). PARAM_INVALID if @p min > @p max.
+ */
+viper_scpi_result_t viper_scpi_param_double_kw(const viper_scpi_context_t *ctx, size_t idx,
+                                               double min, double max, double def,
+                                               double *out);
+/** Integer flavour of viper_scpi_param_double_kw(). */
+viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, size_t idx,
+                                              int32_t min, int32_t max, int32_t def,
+                                              int32_t *out);
+
+/**
+ * IEEE 488.2 arbitrary block data: definite length (#<n><length><data>) or
+ * indefinite length (#0<data>, which must be the last item of the line).
+ * @p data points into the line buffer and is valid only during the callback.
+ */
+viper_scpi_result_t viper_scpi_param_block(const viper_scpi_context_t *ctx, size_t idx,
+                                           const uint8_t **data, size_t *len);
+
 /** ON / OFF / 1 / 0. */
 viper_scpi_result_t viper_scpi_param_bool(const viper_scpi_context_t *ctx, size_t idx,
                                           bool *out);
@@ -79,6 +109,8 @@ void viper_scpi_result_int(viper_scpi_context_t *ctx, int32_t value);
 void viper_scpi_result_uint(viper_scpi_context_t *ctx, uint32_t value);
 void viper_scpi_result_double(viper_scpi_context_t *ctx, double value);
 void viper_scpi_result_bool(viper_scpi_context_t *ctx, bool value);
+/** Definite-length block: "#<n><length>" header followed by raw bytes. */
+void viper_scpi_result_block(viper_scpi_context_t *ctx, const void *data, size_t len);
 /** Quoted string with embedded quotes doubled. */
 void viper_scpi_result_string(viper_scpi_context_t *ctx, const char *str);
 /** Unquoted text (e.g. character data or *IDN? fields). */

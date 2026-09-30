@@ -12,6 +12,10 @@ int32_t g_count;
 uint32_t g_ucount;
 char g_name[32];
 int g_reset_calls;
+double g_limit;
+int32_t g_pcount;
+uint8_t g_block[32];
+size_t g_block_len;
 
 static char s_out[512];
 static size_t s_out_len;
@@ -129,6 +133,93 @@ static viper_scpi_result_t cb_params(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
+static viper_scpi_result_t cb_temp(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_int(ctx, 25);
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_power(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "POWER");
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_prot(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "PROT");
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_chan_volt(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 0, 1));
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_chan_range(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 0, 1));
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 1, 1));
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_bank_id(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 0, 1));
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 1, 1));
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 9, -7)); /* out of range */
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_limit(viper_scpi_context_t *ctx)
+{
+    double v = g_limit;
+
+    if (viper_scpi_is_query(ctx)) {
+        if (viper_scpi_param_present(ctx, 0)) {
+            viper_scpi_result_t res = viper_scpi_param_double_kw(ctx, 0, 0.0, 10.0, 5.0, &v);
+            if (res != VIPER_SCPI_RES_OK) {
+                return res;
+            }
+        }
+        viper_scpi_result_double(ctx, v);
+        return VIPER_SCPI_RES_OK;
+    }
+    return viper_scpi_param_double_kw(ctx, 0, 0.0, 10.0, 5.0, &g_limit);
+}
+
+static viper_scpi_result_t cb_pcount(viper_scpi_context_t *ctx)
+{
+    if (viper_scpi_is_query(ctx)) {
+        viper_scpi_result_int(ctx, g_pcount);
+        return VIPER_SCPI_RES_OK;
+    }
+    return viper_scpi_param_int32_kw(ctx, 0, 1, 100, 10, &g_pcount);
+}
+
+static viper_scpi_result_t cb_block(viper_scpi_context_t *ctx)
+{
+    const uint8_t *data;
+    size_t len;
+    viper_scpi_result_t res;
+
+    if (viper_scpi_is_query(ctx)) {
+        viper_scpi_result_block(ctx, g_block, g_block_len);
+        return VIPER_SCPI_RES_OK;
+    }
+    res = viper_scpi_param_block(ctx, 0, &data, &len);
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    if (len > sizeof g_block) {
+        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+    }
+    memcpy(g_block, data, len);
+    g_block_len = len;
+    return VIPER_SCPI_RES_OK;
+}
+
 static const viper_scpi_node_t meas_volt_children[] = {
     { "DC", cb_meas_dc, NULL },
     { "PAIR", cb_meas_pair, NULL },
@@ -151,7 +242,32 @@ static const viper_scpi_node_t display_children[] = {
     { "MODE", cb_mode, NULL },
     VIPER_SCPI_NODE_END
 };
+static const viper_scpi_node_t sense_children[] = {
+    { "TEMPerature", cb_temp, NULL },
+    VIPER_SCPI_NODE_END
+};
+static const viper_scpi_node_t power_children[] = {
+    { "[LEVel]", cb_power, NULL },
+    { "PROTection", cb_prot, NULL },
+    VIPER_SCPI_NODE_END
+};
+static const viper_scpi_node_t bank_children[] = {
+    { "ID", cb_bank_id, NULL },
+    VIPER_SCPI_NODE_END
+};
+static const viper_scpi_node_t chan_children[] = {
+    { "VOLTage", cb_chan_volt, NULL },
+    { "RANGe#", cb_chan_range, NULL },
+    { "[BANK#]", NULL, bank_children },
+    VIPER_SCPI_NODE_END
+};
 static const viper_scpi_node_t root[] = {
+    { "[SENSe]", NULL, sense_children },
+    { "POWer", NULL, power_children },
+    { "CHANnel#", NULL, chan_children },
+    { "LIMit", cb_limit, NULL },
+    { "PCOunt", cb_pcount, NULL },
+    { "BLOCk", cb_block, NULL },
     { "MEASure", NULL, meas_children },
     { "SOURce", NULL, source_children },
     { "OUTPut", NULL, output_children },
@@ -185,6 +301,10 @@ void fx_setup(void)
     g_ucount = 0;
     g_name[0] = '\0';
     g_reset_calls = 0;
+    g_limit = 1.0;
+    g_pcount = 0;
+    g_block_len = 0;
+    memset(g_block, 0, sizeof g_block);
     fx_clear();
     (void)viper_scpi_init(&g_ctx, &config);
 }

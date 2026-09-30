@@ -23,6 +23,11 @@
 #define VIPER_SCPI_MAX_RECURSION_DEPTH 8
 #endif
 
+/** Maximum number of numeric suffixes recorded per command header. */
+#ifndef VIPER_SCPI_MAX_SUFFIXES
+#define VIPER_SCPI_MAX_SUFFIXES 4
+#endif
+
 /** Number of entries in the SCPI error queue (must be 2..255). */
 #ifndef VIPER_SCPI_ERROR_QUEUE_SIZE
 #define VIPER_SCPI_ERROR_QUEUE_SIZE 8

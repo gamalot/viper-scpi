@@ -53,6 +53,10 @@ extern int32_t g_count;
 extern uint32_t g_ucount;
 extern char g_name[32];
 extern int g_reset_calls;
+extern double g_limit;
+extern int32_t g_pcount;
+extern uint8_t g_block[32];
+extern size_t g_block_len;
 
 /** Re-initialise the context, tree state and output capture. */
 void fx_setup(void);

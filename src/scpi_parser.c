@@ -73,6 +73,25 @@ void viper_scpi_result_double(viper_scpi_context_t *ctx, double value)
     emit(ctx, s, strlen(s));
 }
 
+void viper_scpi_result_block(viper_scpi_context_t *ctx, const void *data, size_t len)
+{
+    char hdr[16];
+    unsigned digits = 1;
+    int n;
+
+    for (size_t t = len; t >= 10; t /= 10) {
+        digits++;
+    }
+    if (digits > 9) {
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+        return;
+    }
+    n = snprintf(hdr, sizeof hdr, "#%u%lu", digits, (unsigned long)len);
+    result_begin(ctx);
+    emit(ctx, hdr, (size_t)n);
+    emit(ctx, (const char *)data, len);
+}
+
 void viper_scpi_result_string(viper_scpi_context_t *ctx, const char *str)
 {
     const char *run = str;
@@ -115,50 +134,69 @@ typedef struct {
     size_t len;
 } segment_t;
 
+/* True if a block starts at p[i]: '#' at the start of a parameter. */
+static size_t block_at(const char *p, size_t i, size_t n)
+{
+    if (p[i] != '#' || i == 0) {
+        return 0;
+    }
+    if (p[i - 1] != ' ' && p[i - 1] != '\t' && p[i - 1] != ',') {
+        return 0;
+    }
+    return viper_scpi_block_span(p + i, n - i);
+}
+
 /* Splits the parameter region of a unit into ctx->params. */
 static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p, size_t n)
 {
-    size_t start = 0;
-    char quote = 0;
+    size_t i = 0;
 
-    while (n > 0 && viper_scpi_is_space(*p)) {
-        p++;
-        n--;
+    while (i < n && viper_scpi_is_space(p[i])) {
+        i++;
     }
-    if (n == 0) {
+    if (i == n) {
         return VIPER_SCPI_RES_OK;
     }
 
-    for (size_t i = 0; i <= n; i++) {
-        if (i < n) {
-            char c = p[i];
-            if (quote != 0) {
-                if (c == quote) {
-                    quote = 0;
-                }
-                continue;
-            }
-            if (c == '"' || c == '\'') {
-                quote = c;
-                continue;
-            }
-            if (c != ',') {
-                continue;
-            }
-        } else if (quote != 0) {
-            return VIPER_SCPI_RES_ERR_SYNTAX; /* unterminated string */
-        }
+    for (;;) {
+        size_t ts;
+        size_t te;
+        size_t span;
+        char quote = 0;
 
-        size_t ts = start;
-        size_t te = i;
-        while (ts < te && viper_scpi_is_space(p[ts])) {
-            ts++;
+        while (i < n && viper_scpi_is_space(p[i])) {
+            i++;
         }
-        while (te > ts && viper_scpi_is_space(p[te - 1])) {
-            te--;
-        }
-        if (ts == te) {
+        if (i >= n) {
             return VIPER_SCPI_RES_ERR_SYNTAX; /* empty parameter */
+        }
+        ts = i;
+        span = block_at(p, i, n);
+        if (span > 0) {
+            i += span; /* raw block bytes are kept verbatim */
+            te = i;
+        } else {
+            for (; i < n; i++) {
+                if (quote != 0) {
+                    if (p[i] == quote) {
+                        quote = 0;
+                    }
+                } else if (p[i] == '"' || p[i] == '\'') {
+                    quote = p[i];
+                } else if (p[i] == ',') {
+                    break;
+                }
+            }
+            if (quote != 0) {
+                return VIPER_SCPI_RES_ERR_SYNTAX; /* unterminated string */
+            }
+            te = i;
+            while (te > ts && viper_scpi_is_space(p[te - 1])) {
+                te--;
+            }
+            if (te == ts) {
+                return VIPER_SCPI_RES_ERR_SYNTAX; /* empty parameter */
+            }
         }
         if (ctx->param_count >= VIPER_SCPI_MAX_PARAMS) {
             return VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED;
@@ -166,44 +204,105 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
         ctx->params[ctx->param_count].str = p + ts;
         ctx->params[ctx->param_count].len = te - ts;
         ctx->param_count++;
-        start = i + 1;
+
+        while (i < n && viper_scpi_is_space(p[i])) {
+            i++;
+        }
+        if (i >= n) {
+            return VIPER_SCPI_RES_OK;
+        }
+        if (p[i] != ',') {
+            return VIPER_SCPI_RES_ERR_SYNTAX; /* garbage after a block */
+        }
+        i++;
     }
-    return VIPER_SCPI_RES_OK;
 }
 
 /* ---- Tree traversal --------------------------------------------------------- */
 
-/*
- * Walks @p segs through the tree starting at @p list. Intermediate segments
- * must name nodes with children, the last one a node with a callback.
- * @p parent_list receives the sibling list holding the last node.
- */
-static const viper_scpi_node_t *walk(const viper_scpi_node_t *list,
-                                     const segment_t *segs, size_t nseg,
-                                     const viper_scpi_node_t **parent_list)
+/* Depth guard against malformed (cyclic) trees. */
+#define MAX_TREE_DEPTH (2 * VIPER_SCPI_MAX_RECURSION_DEPTH)
+
+static bool suffix_push(viper_scpi_context_t *ctx, int32_t value)
 {
-    const viper_scpi_node_t *found = NULL;
-
-    for (size_t k = 0; k < nseg; k++) {
-        bool last = (k == nseg - 1);
-
-        found = NULL;
-        for (const viper_scpi_node_t *n = list; n != NULL && n->pattern != NULL; n++) {
-            if (!viper_scpi_pattern_match(n->pattern, segs[k].str, segs[k].len)) {
-                continue;
-            }
-            if (last ? (n->callback != NULL) : (n->children != NULL)) {
-                found = n;
-                break;
-            }
-        }
-        if (found == NULL) {
-            return NULL;
-        }
-        *parent_list = list;
-        list = found->children;
+    if (ctx->suffix_count >= VIPER_SCPI_MAX_SUFFIXES) {
+        return false;
     }
-    return found;
+    ctx->suffix[ctx->suffix_count++] = value;
+    return true;
+}
+
+/* All segments are consumed: find an omittable node that has a callback. */
+static const viper_scpi_node_t *find_default(viper_scpi_context_t *ctx,
+                                             const viper_scpi_node_t *list, unsigned depth)
+{
+    uint8_t saved = ctx->suffix_count;
+
+    if (list == NULL || depth > MAX_TREE_DEPTH) {
+        return NULL;
+    }
+    for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
+        const viper_scpi_node_t *hit;
+
+        if (!viper_scpi_node_is_optional(n->pattern)) {
+            continue;
+        }
+        if (viper_scpi_node_has_suffix(n->pattern) && !suffix_push(ctx, -1)) {
+            continue;
+        }
+        hit = (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
+        if (hit != NULL) {
+            return hit;
+        }
+        ctx->suffix_count = saved;
+    }
+    return NULL;
+}
+
+/*
+ * Matches @p segs against the tree below @p list, backtracking over optional
+ * nodes. @p match_list receives the sibling list in which the last written
+ * mnemonic matched; suffixes are recorded in ctx->suffix.
+ */
+static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
+                                        const viper_scpi_node_t *list,
+                                        const segment_t *segs, size_t nseg, unsigned depth,
+                                        const viper_scpi_node_t **match_list)
+{
+    uint8_t saved = ctx->suffix_count;
+
+    if (list == NULL || depth > MAX_TREE_DEPTH) {
+        return NULL;
+    }
+    for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
+        const viper_scpi_node_t *hit;
+        int32_t sfx;
+        bool has_sfx;
+
+        if (viper_scpi_node_match(n->pattern, segs[0].str, segs[0].len, &sfx, &has_sfx) &&
+            (!has_sfx || suffix_push(ctx, sfx))) {
+            if (nseg == 1) {
+                *match_list = list;
+                hit = (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
+            } else {
+                hit = resolve(ctx, n->children, segs + 1, nseg - 1, depth + 1, match_list);
+            }
+            if (hit != NULL) {
+                return hit;
+            }
+            ctx->suffix_count = saved;
+        }
+        /* An optional node may also be skipped without consuming a mnemonic. */
+        if (viper_scpi_node_is_optional(n->pattern) && n->children != NULL &&
+            (!viper_scpi_node_has_suffix(n->pattern) || suffix_push(ctx, -1))) {
+            hit = resolve(ctx, n->children, segs, nseg, depth + 1, match_list);
+            if (hit != NULL) {
+                return hit;
+            }
+            ctx->suffix_count = saved;
+        }
+    }
+    return NULL;
 }
 
 static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *h, size_t hlen)
@@ -214,6 +313,8 @@ static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *
     size_t st;
     const viper_scpi_node_t *parent = NULL;
     const viper_scpi_node_t *node;
+
+    ctx->suffix_count = 0;
 
     if (h[0] == ':') {
         ctx->level = NULL;
@@ -251,19 +352,20 @@ static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *
     }
 
     if (ctx->level != NULL) {
-        node = walk(ctx->level, segs, nseg, &parent);
+        node = resolve(ctx, ctx->level, segs, nseg, 0, &parent);
     } else {
-        node = walk(ctx->cfg->root, segs, nseg, &parent);
+        node = resolve(ctx, ctx->cfg->root, segs, nseg, 0, &parent);
         if (node == NULL) {
-            node = walk(viper_scpi_builtin_root, segs, nseg, &parent);
+            ctx->suffix_count = 0;
+            node = resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0, &parent);
         }
     }
     if (node == NULL) {
         return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
 
-    /* Later commands without a leading ':' are relative to the list that
-     * holds this command (the children of its penultimate node). */
+    /* Later commands without a leading ':' are relative to the list in which
+     * the last written mnemonic matched (the children of its parent). */
     if (nseg > 1) {
         ctx->level = parent;
     }
@@ -295,9 +397,6 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
 
     while (n > 0 && viper_scpi_is_space(*s)) {
         s++;
-        n--;
-    }
-    while (n > 0 && viper_scpi_is_space(s[n - 1])) {
         n--;
     }
     if (n == 0) {
@@ -338,6 +437,13 @@ static void execute_line(viper_scpi_context_t *ctx)
                 quote = c;
                 continue;
             }
+            if (c == '#') {
+                size_t span = block_at(ctx->buffer, i, ctx->length);
+                if (span > 0) {
+                    i += span - 1; /* skip raw block bytes */
+                    continue;
+                }
+            }
             if (c != ';') {
                 continue;
             }
@@ -351,6 +457,8 @@ static void execute_line(viper_scpi_context_t *ctx)
     }
 }
 
+enum { BLK_NONE, BLK_HASH, BLK_LENGTH, BLK_DATA, BLK_INDEFINITE };
+
 static void finish_line(viper_scpi_context_t *ctx)
 {
     if (ctx->overflow) {
@@ -360,6 +468,21 @@ static void finish_line(viper_scpi_context_t *ctx)
     }
     ctx->length = 0;
     ctx->overflow = 0;
+    ctx->block_state = BLK_NONE;
+    ctx->quote = 0;
+    ctx->last = 0;
+}
+
+static void store(viper_scpi_context_t *ctx, char c)
+{
+    if (ctx->overflow) {
+        return;
+    }
+    if (ctx->length >= VIPER_SCPI_BUFFER_SIZE) {
+        ctx->overflow = 1;
+    } else {
+        ctx->buffer[ctx->length++] = c;
+    }
 }
 
 /* ---- Public input API --------------------------------------------------------- */
@@ -375,17 +498,75 @@ viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx, const viper_scpi_
     return VIPER_SCPI_RES_OK;
 }
 
+/*
+ * Block data may contain any byte, including '\n' and ';', so the input side
+ * has to recognise blocks while the line is still being assembled. The rules
+ * mirror block_at() used when the line is executed.
+ */
 void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
 {
+    switch (ctx->block_state) {
+    case BLK_DATA:
+        store(ctx, c);
+        if (--ctx->block_remaining == 0) {
+            ctx->block_state = BLK_NONE;
+        }
+        return;
+    case BLK_INDEFINITE:
+        if (c == '\n') {
+            finish_line(ctx);
+        } else {
+            store(ctx, c);
+        }
+        return;
+    case BLK_HASH:
+        if (c == '0') {
+            ctx->block_state = BLK_INDEFINITE;
+            store(ctx, c);
+            return;
+        }
+        if (c >= '1' && c <= '9') {
+            ctx->block_state = BLK_LENGTH;
+            ctx->block_digits = (uint8_t)(c - '0');
+            ctx->block_remaining = 0;
+            store(ctx, c);
+            return;
+        }
+        ctx->block_state = BLK_NONE; /* "#H..." etc.: ordinary character */
+        break;
+    case BLK_LENGTH:
+        if (c >= '0' && c <= '9') {
+            ctx->block_remaining = ctx->block_remaining * 10u + (uint32_t)(c - '0');
+            store(ctx, c);
+            if (--ctx->block_digits == 0) {
+                ctx->block_state = (ctx->block_remaining > 0) ? BLK_DATA : BLK_NONE;
+            }
+            return;
+        }
+        ctx->block_state = BLK_NONE; /* malformed length: parsed as text */
+        break;
+    default:
+        break;
+    }
+
     if (c == '\n') {
         finish_line(ctx);
-    } else if (c == '\r' || c == '\0' || ctx->overflow) {
         return;
-    } else if (ctx->length >= VIPER_SCPI_BUFFER_SIZE) {
-        ctx->overflow = 1;
-    } else {
-        ctx->buffer[ctx->length++] = c;
     }
+    if (c == '\r' || c == '\0') {
+        return;
+    }
+    if (ctx->quote != 0) {
+        if (c == ctx->quote) {
+            ctx->quote = 0;
+        }
+    } else if (c == '"' || c == '\'') {
+        ctx->quote = c;
+    } else if (c == '#' && (ctx->last == ' ' || ctx->last == '\t' || ctx->last == ',')) {
+        ctx->block_state = BLK_HASH;
+    }
+    store(ctx, c);
+    ctx->last = c;
 }
 
 void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t len)
