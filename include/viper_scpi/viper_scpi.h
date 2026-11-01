@@ -144,7 +144,12 @@ viper_scpi_result_t viper_scpi_param_string(const viper_scpi_context_t *ctx, siz
 
 void viper_scpi_result_int(viper_scpi_context_t *ctx, int32_t value);
 void viper_scpi_result_uint(viper_scpi_context_t *ctx, uint32_t value);
+/** NR3/NR2 response with VIPER_SCPI_DOUBLE_DIGITS significant digits and an
+ *  upper-case exponent (1E+10). +-INF give +-9.9E+37, NaN 9.91E+37. */
 void viper_scpi_result_double(viper_scpi_context_t *ctx, double value);
+/** viper_scpi_result_double() with @p digits significant digits (clamped to
+ *  1..17), e.g. 7 for a 6.5-digit meter. */
+void viper_scpi_result_double_digits(viper_scpi_context_t *ctx, double value, int digits);
 void viper_scpi_result_bool(viper_scpi_context_t *ctx, bool value);
 /** Definite-length block: "#<n><length>" header followed by raw bytes. */
 void viper_scpi_result_block(viper_scpi_context_t *ctx, const void *data, size_t len);

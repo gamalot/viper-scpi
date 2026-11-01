@@ -151,7 +151,7 @@ static void test_double_results(void)
     fx_clear();
     g_volt = 1e-6;
     fx_send("SOUR:VOLT?");
-    CHECK_STR(fx_out(), "1e-06\n");
+    CHECK_STR(fx_out(), "1E-06\n");
     fx_clear();
     g_volt = 1.0 / 0.0;
     fx_send("SOUR:VOLT?");
@@ -165,6 +165,52 @@ static void test_double_results(void)
     g_volt = g_volt - g_volt;
     fx_send("SOUR:VOLT?");
     CHECK_STR(fx_out(), "9.91E+37\n");
+}
+
+/* Formats @p v with result_double_digits() in a fresh context. */
+static const char *fmt(double v, int digits)
+{
+    fx_setup();
+    if (digits == 0) {
+        viper_scpi_result_double(&g_ctx, v);
+    } else {
+        viper_scpi_result_double_digits(&g_ctx, v, digits);
+    }
+    return fx_out();
+}
+
+static void test_nr3_format(void)
+{
+    /* Upper-case exponent (IEEE 488.2 8.7.4) and 15 significant digits. */
+    CHECK_STR(fmt(1e10, 0), "10000000000");
+    CHECK_STR(fmt(1e20, 0), "1E+20");
+    CHECK_STR(fmt(1.5e-7, 0), "1.5E-07");
+    CHECK_STR(fmt(-1.5e-7, 0), "-1.5E-07");
+    CHECK_STR(fmt(123456789012.0, 0), "123456789012");
+    CHECK_STR(fmt(1.23456789012345e30, 0), "1.23456789012345E+30");
+    CHECK_STR(fmt(0.0, 0), "0");
+    CHECK_STR(fmt(-0.25, 0), "-0.25");
+    CHECK_STR(fmt(0.1, 0), "0.1");                 /* no noise digits */
+    CHECK_STR(fmt(1.23456789012, 0), "1.23456789012");
+    CHECK_STR(fmt(-42.0, 0), "-42");
+
+    /* Explicit digit counts, clamped to 1..17. */
+    CHECK_STR(fmt(1.23456789, 3), "1.23");
+    CHECK_STR(fmt(123456.789, 7), "123456.8");
+    CHECK_STR(fmt(1.5e-7, 2), "1.5E-07");
+    CHECK_STR(fmt(0.1, 17), "0.10000000000000001");
+    CHECK_STR(fmt(0.1, 99), "0.10000000000000001");
+    CHECK_STR(fmt(2.6, -3), "3");                  /* clamped to 1 digit */
+    CHECK_STR(fmt(1e10, 3), "1E+10");
+
+    /* Special values keep the SCPI encoding in every precision. */
+    CHECK_STR(fmt(1.0 / 0.0, 3), "9.9E+37");
+    CHECK_STR(fmt(-1.0 / 0.0, 0), "-9.9E+37");
+
+    /* A value set with 12 digits reads back unchanged. */
+    fx_setup();
+    fx_send("SOUR:VOLT 1.23456789012;VOLT?");
+    CHECK_STR(fx_out(), "1.23456789012\n");
 }
 
 static void test_booleans(void)
@@ -315,6 +361,7 @@ int main(void)
     test_floats();
     test_float_errors();
     test_double_results();
+    test_nr3_format();
     test_booleans();
     test_choices();
     test_strings();

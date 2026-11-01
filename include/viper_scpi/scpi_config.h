@@ -28,6 +28,17 @@
 #define VIPER_SCPI_MAX_SUFFIXES 4
 #endif
 
+/**
+ * Significant digits of viper_scpi_result_double() (1..17). 15 is the most
+ * that any decimal value survives text -> double -> text with, so a setting
+ * such as VOLT 1.23456789012 reads back exactly as written, without the noise
+ * digits 17 would add (0.1 -> 0.10000000000000001). Use 17 for a lossless
+ * round trip of computed doubles, or viper_scpi_result_double_digits().
+ */
+#ifndef VIPER_SCPI_DOUBLE_DIGITS
+#define VIPER_SCPI_DOUBLE_DIGITS 15
+#endif
+
 /** Number of entries in the SCPI error queue (must be 2..255). */
 #ifndef VIPER_SCPI_ERROR_QUEUE_SIZE
 #define VIPER_SCPI_ERROR_QUEUE_SIZE 8

@@ -136,11 +136,16 @@ void viper_scpi_result_bool(viper_scpi_context_t *ctx, bool value)
     emit(ctx, value ? "1" : "0", 1);
 }
 
-void viper_scpi_result_double(viper_scpi_context_t *ctx, double value)
+void viper_scpi_result_double_digits(viper_scpi_context_t *ctx, double value, int digits)
 {
-    char buf[32];
+    char buf[40];
     const char *s = buf;
 
+    if (digits < 1) {
+        digits = 1;
+    } else if (digits > 17) {
+        digits = 17;
+    }
     /* SCPI defines 9.9E37 as infinity and 9.91E37 as "not a number". */
     if (value != value) {
         s = "9.91E+37";
@@ -149,10 +154,21 @@ void viper_scpi_result_double(viper_scpi_context_t *ctx, double value)
     } else if (value < -DBL_MAX) {
         s = "-9.9E+37";
     } else {
-        (void)snprintf(buf, sizeof buf, "%.9g", value);
+        (void)snprintf(buf, sizeof buf, "%.*g", digits, value);
+        /* IEEE 488.2 8.7.4: the NR3 exponent marker is an upper-case E. */
+        for (char *p = buf; *p != '\0'; p++) {
+            if (*p == 'e') {
+                *p = 'E';
+            }
+        }
     }
     result_begin(ctx);
     emit(ctx, s, strlen(s));
+}
+
+void viper_scpi_result_double(viper_scpi_context_t *ctx, double value)
+{
+    viper_scpi_result_double_digits(ctx, value, VIPER_SCPI_DOUBLE_DIGITS);
 }
 
 /* Writes the separator and "#<n><length>"; false if the length needs more
