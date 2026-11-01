@@ -10,10 +10,8 @@ output model added), all CI jobs green (run 41305521159).
 
 > **Status (2026-11-01):** every item below has been implemented on `main`, one
 > commit per item (commit subjects end in the item number, e.g. "(2.3)"), and
-> is recorded in [CHANGELOG.md](../CHANGELOG.md) as release 0.2.0. Open: the
-> release tags `v0.1.0` (at `d385786`) and `v0.2.0` could not be pushed from
-> the automated session and need to be created by a maintainer (item 4.1).
-> Item 1.5 cites IEEE 488.2 7.7.5 without the standard text having been
+> is recorded in [CHANGELOG.md](../CHANGELOG.md) as release 0.2.0, tagged
+> `v0.2.0` (`v0.1.0` marks `d385786`). Item 1.5 cites IEEE 488.2 7.7.5 without the standard text having been
 > checked first-hand.
 
 ## Ground rules
