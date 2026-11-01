@@ -429,6 +429,17 @@ execute it on `\n` (`\r` is ignored). For transports with explicit message
 boundaries (USBTMC EOM) call `viper_scpi_end_of_message()`. A line longer than
 `VIPER_SCPI_BUFFER_SIZE` is discarded and reports `-363` (input buffer overrun).
 
+## Leniency options
+
+Some host software is not standard-conformant. Two workarounds can be switched
+on in `viper_scpi_config_t.options`; **the default (0) is the standard
+behaviour**, and each option changes only what it names.
+
+| Option | Effect |
+| --- | --- |
+| `VIPER_SCPI_OPT_RELATIVE_FALLBACK` | A relative header that does not resolve against the current path is retried from the root. `SOUR:VOLT 1;SOUR:CURR 2` then sets the current; by SCPI-99 6.2.4 the second unit is `SOUR:SOUR:CURR` and `-113`. |
+| `VIPER_SCPI_OPT_EOM_MESSAGES` | Message-exchange model only: LF separates commands like `;` (each line starts at the root) and only EOM/END ends the program message. `*IDN?<LF>*OPC?<LF>` in one transport message then answers `...;1` instead of interrupting the first reply with `-410`. LFs inside strings and blocks stay data. |
+
 ## Configuration
 
 Override any of these with `-D` on the compiler command line (see
@@ -476,7 +487,8 @@ The same checks can be run locally; see the commands in the workflow file.
 - Floating point I/O uses `strtod`/`snprintf` from the C library.
 - In the message-exchange model a reply holds at most one generated block,
   and lines separated by `\n` inside one transport message are separate
-  program messages (so a query on the first line is interrupted by the second).
+  program messages (so a query on the first line is interrupted by the
+  second) unless `VIPER_SCPI_OPT_EOM_MESSAGES` is set.
 
 Planned work, with priorities and acceptance criteria, is in
 [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).

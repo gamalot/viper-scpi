@@ -163,6 +163,20 @@ typedef struct {
     viper_scpi_block_stream_t handler;
 } viper_scpi_stream_node_t;
 
+/** Leniency options for viper_scpi_config_t.options (all off by default;
+ *  the default is the standard behaviour). */
+enum {
+    /** A relative header that does not resolve against the current path is
+     *  retried from the root: SOUR:VOLT 1;SOUR:CURR 2 then works, although
+     *  SCPI-99 6.2.4 reads the second as SOUR:SOUR:CURR (-113). */
+    VIPER_SCPI_OPT_RELATIVE_FALLBACK = 1u << 0,
+    /** Message-exchange model only: LF separates commands like ';' (and
+     *  resets the path), and only EOM/END ends the program message, so
+     *  "*IDN?<LF>*OPC?<LF>" in one transport message is one message with
+     *  the responses joined by ';' instead of -410 for the first. */
+    VIPER_SCPI_OPT_EOM_MESSAGES = 1u << 1
+};
+
 /** Instrument error text; tables end with a NULL text. */
 typedef struct {
     int16_t code;      /**< e.g. 100..32767 for device-defined errors */
@@ -198,6 +212,7 @@ typedef struct {
     const viper_scpi_stream_node_t *stream_nodes; /**< Streaming block input */
     const viper_scpi_error_text_t *error_texts;   /**< Searched before the
                                                        built-in texts */
+    uint32_t options;              /**< VIPER_SCPI_OPT_* leniencies */
 } viper_scpi_config_t;
 
 /** SCPI status register sets, for viper_scpi_status_condition(). */

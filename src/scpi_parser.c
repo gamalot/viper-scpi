@@ -12,6 +12,12 @@ static bool queued(const viper_scpi_context_t *ctx)
     return ctx->cfg->output_buffer != NULL;
 }
 
+/* VIPER_SCPI_OPT_EOM_MESSAGES in effect: LF is a command separator. */
+static bool lf_separates(const viper_scpi_context_t *ctx)
+{
+    return (ctx->cfg->options & VIPER_SCPI_OPT_EOM_MESSAGES) != 0 && queued(ctx);
+}
+
 static void output_reset(viper_scpi_context_t *ctx)
 {
     ctx->out_len = 0;
@@ -516,6 +522,7 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
     size_t nseg = 0;
     size_t pos = 0;
     size_t st;
+    size_t npre;
     const viper_scpi_node_t *node;
 
     ctx->suffix_count = 0;
@@ -529,6 +536,7 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
     for (; nseg < ctx->prefix_count; nseg++) {
         segs[nseg] = ctx->prefix[nseg];
     }
+    npre = nseg;
     if (hlen > pos && h[hlen - 1] == '?') {
         ctx->is_query = 1;
         hlen--;
@@ -564,6 +572,18 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
     if (node == NULL) {
         ctx->suffix_count = 0;
         node = resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0);
+    }
+    if (node == NULL && npre > 0 &&
+        (ctx->cfg->options & VIPER_SCPI_OPT_RELATIVE_FALLBACK) != 0) {
+        /* Lenient: retry the header as if it had a leading ':'. */
+        nseg -= npre;
+        memmove(segs, segs + npre, nseg * sizeof segs[0]);
+        ctx->suffix_count = 0;
+        node = resolve(ctx, ctx->cfg->root, segs, nseg, 0);
+        if (node == NULL) {
+            ctx->suffix_count = 0;
+            node = resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0);
+        }
     }
     if (node == NULL) {
         return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
@@ -718,11 +738,14 @@ static void run_line(viper_scpi_context_t *ctx)
                     continue;
                 }
             }
-            if (c != ';') {
-                continue;
+            if (c != ';' && c != '\n') {
+                continue; /* '\n' is stored only as a separator (EOM_MESSAGES) */
             }
         }
         execute_unit(ctx, ctx->buffer + start, i - start);
+        if (i < ctx->length && ctx->buffer[i] == '\n') {
+            ctx->prefix_count = 0; /* a new line starts at the root */
+        }
         start = i + 1;
         if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
             ctx->exec_pos = start;
@@ -956,9 +979,9 @@ static void stream_data(viper_scpi_context_t *ctx, const char *p, size_t k)
 /* Characters after a streamed block, up to the end of its unit. */
 static void stream_tail(viper_scpi_context_t *ctx, char c)
 {
-    if (c == '\n') {
+    if (c == '\n' && !lf_separates(ctx)) {
         finish_line(ctx);
-    } else if (c == ';') {
+    } else if (c == ';' || c == '\n') {
         stream_finish_unit(ctx);
     } else if (ctx->block_state == BLK_TAIL && !viper_scpi_is_space(c) && c != '\r') {
         /* Another parameter after the block: not allowed. */
@@ -999,7 +1022,7 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         }
         return;
     case BLK_INDEFINITE:
-        if (c == '\n') {
+        if (c == '\n' && !lf_separates(ctx)) {
             finish_line(ctx);
         } else {
             store(ctx, c);
@@ -1046,7 +1069,7 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         ctx->last = c;
         return;
     }
-    if (c == '\n') {
+    if (c == '\n' && !lf_separates(ctx)) {
         finish_line(ctx);
         return;
     }
@@ -1065,7 +1088,7 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
     }
     store(ctx, c);
     ctx->last = c;
-    if (c == ';' && ctx->quote == 0 && !ctx->overflow) {
+    if ((c == ';' || c == '\n') && ctx->quote == 0 && !ctx->overflow) {
         ctx->unit_start = ctx->length;
     }
 }
