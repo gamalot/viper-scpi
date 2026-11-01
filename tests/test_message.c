@@ -437,6 +437,56 @@ static void test_input_discard_keeps_reply(void)
     CHECK_INT(viper_scpi_error_count(&q), 0);
 }
 
+static void test_serial_poll_rqs(void)
+{
+    char buf[64];
+    int reads;
+
+    q_setup();
+    /* No request: bit 6 clear in the poll, nothing pending. */
+    CHECK_INT(viper_scpi_serial_poll(&q), 0);
+
+    /* MAV-driven request. The condition alone is not RQS: only a request
+     * the transport took (and so signalled) is. */
+    q_send("*SRE 16;*OPC?");
+    CHECK_INT(viper_scpi_serial_poll(&q), VIPER_SCPI_STB_MAV);
+    q_read_all(buf, sizeof buf, 64, &reads);
+    q_send("*OPC?");
+    CHECK(viper_scpi_take_service_request(&q));
+    CHECK_INT(viper_scpi_serial_poll(&q), VIPER_SCPI_STB_MAV | VIPER_SCPI_STB_RQS);
+    CHECK_INT(viper_scpi_serial_poll(&q), VIPER_SCPI_STB_MAV);     /* cleared */
+
+    /* *STB? reports MSS and clears nothing. */
+    q_read_all(buf, sizeof buf, 64, &reads);
+    q_send("*SRE 32;*ESE 1;*OPC");
+    CHECK(viper_scpi_take_service_request(&q));
+    q_send("*STB?");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "96\n");                                      /* ESB + MSS */
+    q_send("*STB?");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "96\n");
+    CHECK_INT(viper_scpi_serial_poll(&q), VIPER_SCPI_STB_ESB | VIPER_SCPI_STB_RQS);
+    CHECK_INT(viper_scpi_serial_poll(&q), VIPER_SCPI_STB_ESB);
+
+    /* rqs_delivered() clears it, for SRQ messages carrying the byte. */
+    q_send("*CLS;*ESE 1;*OPC");
+    CHECK(viper_scpi_take_service_request(&q));
+    viper_scpi_rqs_delivered(&q);
+    CHECK_INT(viper_scpi_serial_poll(&q), VIPER_SCPI_STB_ESB);
+
+    /* A new edge sets it again. */
+    q_send("*CLS;*ESE 1;*OPC");
+    CHECK(viper_scpi_take_service_request(&q));
+    CHECK_INT(viper_scpi_serial_poll(&q), VIPER_SCPI_STB_ESB | VIPER_SCPI_STB_RQS);
+
+    /* A request whose reason vanishes before the poll is withdrawn. */
+    q_send("*CLS;*ESE 1;*OPC");
+    CHECK(viper_scpi_take_service_request(&q));
+    q_send("*CLS");
+    CHECK_INT(viper_scpi_serial_poll(&q), 0);
+}
+
 int main(void)
 {
     test_queued_reply();
@@ -454,5 +504,6 @@ int main(void)
     test_generated_block_stream_model();
     test_truncated_block_at_eom();
     test_input_discard_keeps_reply();
+    test_serial_poll_rqs();
     return test_summary("test_message");
 }

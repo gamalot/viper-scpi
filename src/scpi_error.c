@@ -130,6 +130,11 @@ void viper_scpi_srq_update(viper_scpi_context_t *ctx)
     if (now && ctx->srq_prev == 0) {
         ctx->srq_new = 1;
     }
+    if (!now) {
+        /* The reason for the request is gone before anyone polled: the
+         * device stops requesting service (IEEE 488.1 SRQS -> NPRS). */
+        ctx->rqs = 0;
+    }
     ctx->srq_prev = now ? 1u : 0u;
 }
 
@@ -140,7 +145,28 @@ bool viper_scpi_take_service_request(viper_scpi_context_t *ctx)
     viper_scpi_srq_update(ctx);
     taken = ctx->srq_new != 0;
     ctx->srq_new = 0;
+    if (taken) {
+        ctx->rqs = 1;
+    }
     return taken;
+}
+
+uint8_t viper_scpi_serial_poll(viper_scpi_context_t *ctx)
+{
+    uint8_t stb;
+
+    viper_scpi_srq_update(ctx);
+    stb = (uint8_t)(viper_scpi_status_byte(ctx) & ~VIPER_SCPI_STB_MSS);
+    if (ctx->rqs) {
+        stb |= VIPER_SCPI_STB_RQS;
+    }
+    ctx->rqs = 0;
+    return stb;
+}
+
+void viper_scpi_rqs_delivered(viper_scpi_context_t *ctx)
+{
+    ctx->rqs = 0;
 }
 
 /* ---- Built-in SYSTem subtree ------------------------------------------------- */

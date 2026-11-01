@@ -55,7 +55,8 @@ enum {
     VIPER_SCPI_STB_EAV = 0x04, /**< Error queue not empty */
     VIPER_SCPI_STB_MAV = 0x10, /**< Message available */
     VIPER_SCPI_STB_ESB = 0x20, /**< Event status summary */
-    VIPER_SCPI_STB_MSS = 0x40  /**< Master summary status */
+    VIPER_SCPI_STB_MSS = 0x40, /**< Master summary status (*STB?) */
+    VIPER_SCPI_STB_RQS = 0x40  /**< Request service (serial poll), same bit */
 };
 
 typedef struct viper_scpi_context_s viper_scpi_context_t;
@@ -185,6 +186,7 @@ struct viper_scpi_context_s {
     uint8_t out_overflow;
     uint8_t srq_prev;      /**< Service-request summary at the last check */
     uint8_t srq_new;       /**< Rising edge not yet taken */
+    uint8_t rqs;           /**< Service requested and not yet polled */
     uint32_t block_remaining;
     uint8_t suffix_count;
     uint8_t prefix_count;

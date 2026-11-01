@@ -110,7 +110,8 @@ static const viper_scpi_config_t cfg = {
 | abort of incoming data only (USBTMC ABORT_BULK_OUT, CLEAR_FEATURE on bulk OUT, VXI-11 abort) | `viper_scpi_input_discard()`: the queued reply stays readable |
 | device clear (viClear, USBTMC INITIATE_CLEAR, VXI-11 device_clear) | `viper_scpi_device_clear()` |
 | main loop | `if (viper_scpi_take_service_request(ctx))` raise SRQ |
-| serial poll / READ_STATUS_BYTE | `viper_scpi_status_byte()` (bit 6 is MSS; keep RQS in the transport) |
+| serial poll / READ_STATUS_BYTE / device_readstb | `viper_scpi_serial_poll()`: bit 6 is RQS, cleared by the poll |
+| SRQ notification that carries the status byte (USB488 interrupt-IN) | `viper_scpi_rqs_delivered()` after sending it: that notification *is* the poll |
 
 What changes in this mode:
 

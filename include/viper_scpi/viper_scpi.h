@@ -221,6 +221,24 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx);
  */
 bool viper_scpi_take_service_request(viper_scpi_context_t *ctx);
 
+/**
+ * Serial poll (GPIB serial poll, USB488 READ_STATUS_BYTE, VXI-11
+ * device_readstb): the status byte with RQS in bit 6 instead of MSS, then
+ * RQS is cleared. RQS is set when viper_scpi_take_service_request() reports
+ * a request, and also clears if the request condition goes away before the
+ * poll (IEEE 488.1: the device stops requesting service). *STB? keeps
+ * reporting MSS and never clears anything.
+ */
+uint8_t viper_scpi_serial_poll(viper_scpi_context_t *ctx);
+
+/**
+ * Clear RQS without a poll, for transports whose SRQ message itself carries
+ * the status byte (USB488 interrupt-IN notification): the host's VISA hands
+ * that byte to the next viReadSTB() without asking the device, so delivering
+ * the notification is the serial poll.
+ */
+void viper_scpi_rqs_delivered(viper_scpi_context_t *ctx);
+
 #ifdef __cplusplus
 }
 #endif
