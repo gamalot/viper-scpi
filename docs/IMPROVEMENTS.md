@@ -8,6 +8,14 @@ that order, one commit per item.
 State of the library when this was written: `main` at `2a573f5` (message-exchange
 output model added), all CI jobs green (run 41305521159).
 
+> **Status (2026-11-01):** every item below has been implemented on `main`, one
+> commit per item (commit subjects end in the item number, e.g. "(2.3)"), and
+> is recorded in [CHANGELOG.md](../CHANGELOG.md) as release 0.2.0. Open: the
+> release tags `v0.1.0` (at `d385786`) and `v0.2.0` could not be pushed from
+> the automated session and need to be created by a maintainer (item 4.1).
+> Item 1.5 cites IEEE 488.2 7.7.5 without the standard text having been
+> checked first-hand.
+
 ## Ground rules
 
 These hold for every item. A change that breaks one is not done.
@@ -363,7 +371,7 @@ and that `ubuntu-latest` is moving to Ubuntu 26. Move to the current major of
 
 ### 4.5 Retire the original specification
 
-`viper_scpi_specification.md` is the prompt the library was first generated
+`viper_scpi_specification.md` (now in `docs/history/`) is the prompt the library was first generated
 from. It is out of date (no message-exchange model, no units, no suffixes) and a
 reader cannot tell which document is authoritative. Move it to
 `docs/history/` with a note at the top, and make the README the reference.

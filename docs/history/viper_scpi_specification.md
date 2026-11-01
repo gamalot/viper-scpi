@@ -1,3 +1,10 @@
+> **Historical document -- not maintained.** This is the specification the
+> library was first generated from (September 2026, version 0.1.0). It is out
+> of date: it predates the message-exchange model, units, numeric suffixes,
+> overlapped commands, the STATus subsystem and more. The authoritative
+> reference is the [README](../../README.md), together with the comments in
+> `include/viper_scpi/viper_scpi.h` and the [CHANGELOG](../../CHANGELOG.md).
+
 # Project Specification: viper-scpi (Bare-Metal SCPI Parser C Library)
 
 ## 1. Executive Summary

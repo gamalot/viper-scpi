@@ -12,6 +12,10 @@ and writes responses through a function pointer you provide.
   struct (about 470 bytes with the default limits, well under 2 KB).
 - Builds warning-free with `-Wall -Wextra -Wpedantic` (GCC and Clang).
 
+This README, the comments in `include/viper_scpi/viper_scpi.h` and
+[CHANGELOG.md](CHANGELOG.md) are the reference. The original generation
+prompt is kept, out of date, in [docs/history/](docs/history/).
+
 ## Features
 
 - Hierarchical commands (`:MEASure:VOLTage:DC?`), case-insensitive, short and
