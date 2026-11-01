@@ -39,6 +39,8 @@ and writes responses through a function pointer you provide.
   trigger hook, `*TRG`. The ESR reports PON after `viper_scpi_init()`.
 - SCPI error queue with `SYSTem:ERRor[:NEXT]?`, `SYSTem:ERRor:COUNt?` and
   `SYSTem:VERSion?` built in.
+- SCPI STATus subsystem: OPERation and QUEStionable register sets with
+  transition filters, summarised in status byte bits 7 and 3.
 - Two output models: streaming to a `write` function (UART, raw TCP), or a
   response queue the transport reads from (USBTMC, VXI-11, HiSLIP, GPIB
   device), with MAV, `-410` Query INTERRUPTED, device clear, service-request
@@ -141,6 +143,28 @@ What changes in this mode:
 `viper_scpi_device_clear()` drops a partly received message, the
 compound-header path and the queued reply; the status registers and the error
 queue are kept, as 488.2 requires of DCL/SDC.
+
+## SCPI STATus subsystem
+
+Built in (a user tree may override it): `STATus:OPERation[:EVENt]?`,
+`:CONDition?`, `:ENABle[?]`, `:PTRansition[?]`, `:NTRansition[?]`, the same
+under `STATus:QUEStionable`, and `STATus:PRESet`. Registers are 16 bits with
+bit 15 always 0, so writable values are 0..32767 (`-222` otherwise).
+
+The instrument reports its state through the condition registers:
+
+```c
+/* OPERation bit 4 = MEASuring, QUEStionable bit 1 = CURRent, per SCPI-99 */
+viper_scpi_status_condition(ctx, VIPER_SCPI_STATUS_OPER, 1u << 4, measuring ? 1u << 4 : 0);
+viper_scpi_status_condition(ctx, VIPER_SCPI_STATUS_QUES, 1u << 1, overload ? 1u << 1 : 0);
+```
+
+A 0 -> 1 change passes `PTRansition`, a 1 -> 0 change `NTRansition`, into the
+event register, which latches until read (`STAT:OPER?`) or `*CLS`. Enabled
+event bits set the summary in the status byte -- OPER is bit 7, QUES bit 3 --
+and therefore take part in service requests (`*SRE 8` requests service on a
+QUES event). Power-on and `STAT:PRES` set enables to 0, PTR to all ones and NTR
+to 0; neither touches events or conditions. `*CLS` clears both event registers.
 
 ## Overlapped commands: `*OPC`, `*OPC?`, `*WAI`
 

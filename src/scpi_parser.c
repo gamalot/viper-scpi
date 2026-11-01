@@ -734,6 +734,7 @@ viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx, const viper_scpi_
     ctx->cfg = cfg;
     ctx->user_data = cfg->user_data;
     ctx->esr = VIPER_SCPI_ESR_PON; /* IEEE 488.2 11.5.1.1.2: power on */
+    viper_scpi_status_preset(ctx);
     return VIPER_SCPI_RES_OK;
 }
 

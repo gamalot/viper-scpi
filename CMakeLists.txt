@@ -9,7 +9,8 @@ add_library(viper_scpi STATIC
     src/scpi_parser.c
     src/scpi_ieee488.c
     src/scpi_params.c
-    src/scpi_error.c)
+    src/scpi_error.c
+    src/scpi_status.c)
 target_include_directories(viper_scpi PUBLIC include PRIVATE src)
 set_target_properties(viper_scpi PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 

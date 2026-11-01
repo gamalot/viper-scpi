@@ -53,10 +53,12 @@ enum {
 /** Status Byte bits (IEEE 488.2). */
 enum {
     VIPER_SCPI_STB_EAV = 0x04, /**< Error queue not empty */
+    VIPER_SCPI_STB_QUES = 0x08,/**< QUEStionable summary (SCPI) */
     VIPER_SCPI_STB_MAV = 0x10, /**< Message available */
     VIPER_SCPI_STB_ESB = 0x20, /**< Event status summary */
     VIPER_SCPI_STB_MSS = 0x40, /**< Master summary status (*STB?) */
-    VIPER_SCPI_STB_RQS = 0x40  /**< Request service (serial poll), same bit */
+    VIPER_SCPI_STB_RQS = 0x40, /**< Request service (serial poll), same bit */
+    VIPER_SCPI_STB_OPER = 0x80 /**< OPERation summary (SCPI) */
 };
 
 typedef struct viper_scpi_context_s viper_scpi_context_t;
@@ -152,6 +154,21 @@ typedef struct {
     viper_scpi_trigger_t trigger;  /**< *TRG; without it *TRG is -113 */
 } viper_scpi_config_t;
 
+/** SCPI status register sets, for viper_scpi_status_condition(). */
+typedef enum {
+    VIPER_SCPI_STATUS_OPER = 0, /**< STATus:OPERation (STB bit 7) */
+    VIPER_SCPI_STATUS_QUES = 1  /**< STATus:QUEStionable (STB bit 3) */
+} viper_scpi_status_reg_t;
+
+/** One SCPI status register set (16 bits each; bit 15 is always 0). */
+typedef struct {
+    uint16_t condition;
+    uint16_t event;
+    uint16_t enable;
+    uint16_t ptr;       /**< Positive (0 -> 1) transition filter */
+    uint16_t ntr;       /**< Negative (1 -> 0) transition filter */
+} viper_scpi_status_set_t;
+
 /** Parameter token: points into the line buffer, not NUL terminated. */
 typedef struct {
     const char *str;
@@ -194,6 +211,7 @@ struct viper_scpi_context_s {
     uint8_t wait;          /**< WAIT_* : why execution is suspended */
     uint8_t opc_armed;     /**< *OPC given while operations were pending */
     uint8_t input_dropped; /**< Bytes arrived while suspended */
+    viper_scpi_status_set_t status[2]; /**< OPERation, QUEStionable */
     uint32_t block_remaining;
     uint8_t suffix_count;
     uint8_t prefix_count;

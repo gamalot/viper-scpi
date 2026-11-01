@@ -233,8 +233,9 @@ void viper_scpi_poll(viper_scpi_context_t *ctx);
 
 /** Set Event Status Register bits (e.g. VIPER_SCPI_ESR_URQ). */
 void viper_scpi_event_set(viper_scpi_context_t *ctx, uint8_t mask);
-/** Current status byte, including EAV, MAV (message-exchange model), ESB and
- *  MSS. PON is set in the ESR by viper_scpi_init(). */
+/** Current status byte, including QUES (bit 3), EAV, MAV (message-exchange
+ *  model), ESB, MSS and OPER (bit 7). PON is set in the ESR by
+ *  viper_scpi_init(). */
 uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx);
 
 /**
@@ -246,6 +247,22 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx);
  * notification, VXI-11 device_intr_srq, asserting SRQ on GPIB).
  */
 bool viper_scpi_take_service_request(viper_scpi_context_t *ctx);
+
+/**
+ * Update the condition register of a SCPI status set: the bits in @p mask take
+ * their values from @p value (bit 15 is ignored). Changes pass the transition
+ * filters (PTRansition for 0 -> 1, NTRansition for 1 -> 0) into the event
+ * register, whose enabled bits make up the summary in the status byte (OPER =
+ * bit 7, QUES = bit 3) and can raise a service request.
+ * Example: viper_scpi_status_condition(ctx, VIPER_SCPI_STATUS_OPER, 1u << 4,
+ * measuring ? 1u << 4 : 0) for the standard MEASuring bit.
+ */
+void viper_scpi_status_condition(viper_scpi_context_t *ctx, viper_scpi_status_reg_t reg,
+                                 uint16_t mask, uint16_t value);
+
+/** Read-only view of a status register set, for diagnostics. */
+const viper_scpi_status_set_t *viper_scpi_status_get(const viper_scpi_context_t *ctx,
+                                                     viper_scpi_status_reg_t reg);
 
 /**
  * Serial poll (GPIB serial poll, USB488 READ_STATUS_BYTE, VXI-11

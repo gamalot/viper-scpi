@@ -43,6 +43,8 @@ static viper_scpi_result_t cmd_cls(viper_scpi_context_t *ctx)
     viper_scpi_error_clear(ctx);
     ctx->esr = 0;
     ctx->opc_armed = 0; /* back to Operation Complete Command Idle State */
+    ctx->status[VIPER_SCPI_STATUS_OPER].event = 0; /* SCPI: *CLS clears the */
+    ctx->status[VIPER_SCPI_STATUS_QUES].event = 0; /* status event registers */
     return VIPER_SCPI_RES_OK;
 }
 

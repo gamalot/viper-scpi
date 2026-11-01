@@ -117,6 +117,14 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx)
     if ((ctx->esr & ctx->ese) != 0) {
         stb |= VIPER_SCPI_STB_ESB;
     }
+    if ((ctx->status[VIPER_SCPI_STATUS_QUES].event &
+         ctx->status[VIPER_SCPI_STATUS_QUES].enable) != 0) {
+        stb |= VIPER_SCPI_STB_QUES;
+    }
+    if ((ctx->status[VIPER_SCPI_STATUS_OPER].event &
+         ctx->status[VIPER_SCPI_STATUS_OPER].enable) != 0) {
+        stb |= VIPER_SCPI_STB_OPER;
+    }
     if ((stb & ctx->sre & ~VIPER_SCPI_STB_MSS) != 0) {
         stb |= VIPER_SCPI_STB_MSS;
     }
@@ -230,5 +238,6 @@ static const viper_scpi_node_t syst_children[] = {
 
 const viper_scpi_node_t viper_scpi_builtin_root[] = {
     { "SYSTem", NULL, syst_children },
+    { "STATus", NULL, viper_scpi_status_children },
     VIPER_SCPI_NODE_END
 };

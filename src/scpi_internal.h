@@ -55,6 +55,13 @@ viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx);
 /** Why message execution is suspended (ctx->wait). */
 enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ };
 
+/** STATus subtree, hooked into the built-in root. */
+extern const viper_scpi_node_t viper_scpi_status_children[];
+
+/** STATus:PRESet values (also the power-on state): enables 0, PTR all ones,
+ *  NTR 0. Events and conditions are left alone. */
+void viper_scpi_status_preset(viper_scpi_context_t *ctx);
+
 /** Re-evaluate the service-request condition and latch a rising edge. Call
  *  after anything that can change the status byte or SRE. */
 void viper_scpi_srq_update(viper_scpi_context_t *ctx);
