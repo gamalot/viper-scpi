@@ -93,6 +93,25 @@ jobs:
           gcc -std=c99 -Iinclude size_check.c -o size_check
           ./size_check
 
+  cmake-integration:
+    name: CMake embedding and install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: add_subdirectory() builds only the library
+        run: |
+          cmake -S tests/cmake/embed -B build-embed
+          cmake --build build-embed
+          ./build-embed/app
+      - name: Install and find_package()
+        run: |
+          cmake -S . -B build-install
+          cmake --build build-install
+          cmake --install build-install --prefix "$PWD/prefix"
+          cmake -S tests/cmake/consumer -B build-consumer -DCMAKE_PREFIX_PATH="$PWD/prefix"
+          cmake --build build-consumer
+          ./build-consumer/app
+
   static-analysis:
     name: clang-tidy
     runs-on: ubuntu-latest

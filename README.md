@@ -470,9 +470,19 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Options: `VIPER_SCPI_BUILD_TESTS`, `VIPER_SCPI_BUILD_EXAMPLES`,
-`VIPER_SCPI_WERROR` (all `ON` except the last). To use the library from another
-CMake project, `add_subdirectory(viper-scpi)` and link `viper_scpi`.
+Options: `VIPER_SCPI_BUILD_TESTS`, `VIPER_SCPI_BUILD_EXAMPLES` and
+`VIPER_SCPI_INSTALL` default to `ON` only when viper-scpi is the top-level
+project; `VIPER_SCPI_WERROR` defaults to `OFF`.
+
+To use the library from another CMake project, either vendor it:
+
+```cmake
+add_subdirectory(third_party/viper-scpi)     # builds only the library
+target_link_libraries(firmware PRIVATE viper_scpi::viper_scpi)
+```
+
+or install it (`cmake --install build --prefix <dir>`) and use
+`find_package(viper_scpi 0.2 REQUIRED)` with the same target name.
 
 ## Continuous integration
 
