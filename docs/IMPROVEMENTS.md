@@ -383,6 +383,8 @@ reader cannot tell which document is authoritative. Move it to
 
 ### 5.1 A message that ends right after a block's `#` still runs the command
 
+> **Status:** fixed after 0.2.0 (see CHANGELOG, Unreleased).
+
 **Problem.** Item 1.2 drops a message that ends inside a definite-length block,
 but only once the length digit after `#` has arrived (`BLK_LENGTH`/`BLK_DATA`).
 A message that ends on the `#` itself (`BLK_HASH`) is executed with `#` as the

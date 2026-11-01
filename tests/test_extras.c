@@ -465,6 +465,60 @@ static void test_block_api_arguments(void)
     CHECK_INT(viper_scpi_param_block(&g_ctx, 0, &d, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
 }
 
+static void test_lone_hash(void)
+{
+    /* 5.1, stream model: LF right after '#'. */
+    fx_setup();
+    fx_send("NAME 'keep'");
+    fx_send("NAME #");
+    CHECK_INT(err(), -161);
+    CHECK_STR(g_name, "keep");
+    fx_send("COUNT 5;NAME #");                  /* the whole message is dropped */
+    CHECK_INT(err(), -161);
+    CHECK_INT(g_count, 0);
+    viper_scpi_input_buffer(&g_ctx, "NAME #\r\n", 8);   /* CRLF ends it the same way */
+    CHECK_INT(err(), -161);
+    viper_scpi_input_buffer(&g_ctx, "NAME #", 6);       /* and so does EOM */
+    viper_scpi_end_of_message(&g_ctx);
+    CHECK_INT(err(), -161);
+    CHECK_STR(g_name, "keep");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+    fx_send("COUNT 6");                          /* next message unaffected */
+    CHECK_INT(g_count, 6);
+
+    /* '#' followed by ';', ',' or whitespace: that command fails with -161,
+     * the others of the message run. */
+    fx_send("NAME #;COUNT 7");
+    CHECK_INT(err(), -161);
+    CHECK_INT(g_count, 7);
+    fx_send("PARAMS 1,#,2");
+    CHECK_INT(err(), -161);
+    fx_send("PARAMS # 5");
+    CHECK_INT(err(), -161);
+    fx_send("PARAMS #\t");
+    CHECK_INT(err(), -161);
+    CHECK_STR(g_name, "keep");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+
+    /* Unchanged: '#' + letter reaches the callback; radix numbers; blocks. */
+    fx_clear();
+    fx_send("PARAMS #x,#H1");
+    CHECK_STR(fx_out(), "2\n");
+    fx_send("COUNT #HFF");
+    CHECK_INT(g_count, 255);
+    fx_send("COUNT #B101");
+    CHECK_INT(g_count, 5);
+    fx_send("COUNT #Q17");
+    CHECK_INT(g_count, 15);
+    fx_send("BLOCK #13abc");
+    CHECK_INT(g_block_len, 3);
+    fx_send("BLOCK #0xyz");
+    CHECK_INT(g_block_len, 3);
+    fx_send("NAME '#'");
+    CHECK_STR(g_name, "#");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+}
+
 int main(void)
 {
     test_optional_leaf();
@@ -490,5 +544,6 @@ int main(void)
     test_block_overrun_stays_in_sync();
     test_block_result_sizes();
     test_block_api_arguments();
+    test_lone_hash();
     return test_summary("test_extras");
 }

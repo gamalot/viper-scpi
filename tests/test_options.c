@@ -144,9 +144,24 @@ static void test_eom_messages(void)
     }
 }
 
+static void test_lone_hash_with_eom_messages(void)
+{
+    /* 5.1 under VIPER_SCPI_OPT_EOM_MESSAGES: an LF after '#' only ends the
+     * command, so only that command fails. */
+    setup(&cfg_eom);
+    send("SOUR:VOLT #\nSOUR:CURR 3");
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK(s_volt == 0.0);
+    CHECK(s_curr == 3.0);
+    send("SOUR:VOLT #");                       /* EOM right after '#' */
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
 int main(void)
 {
     test_relative_fallback();
     test_eom_messages();
+    test_lone_hash_with_eom_messages();
     return test_summary("test_options");
 }

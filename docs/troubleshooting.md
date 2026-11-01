@@ -42,9 +42,11 @@ code usually points straight at the cause.
   with `viper_scpi_result_block_fill()`.
 
 **-161 Invalid block data**
-- The message ended (EOM) before a definite-length block had all its declared
-  bytes. Check the length digits the host computed; `#3100` announces 100
-  bytes.
+- The message ended (EOM, or LF on a stream transport) before a block had all
+  its declared bytes -- or right after the `#`. Check the length digits the host
+  computed; `#3100` announces 100 bytes.
+- A parameter that is a bare `#` (`LED #`, `X #,1`): the host meant to send a
+  block or a `#H` number and left out the rest.
 
 **-104 Data type error**
 - A number where text was expected or the reverse; a unit given to a plain

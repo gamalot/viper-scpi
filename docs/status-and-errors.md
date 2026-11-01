@@ -139,7 +139,7 @@ never a stack buffer.
 | -113 | Undefined header | no such command, or the wrong form (query/command) |
 | -114 | Header suffix out of range | (for your callbacks) |
 | -131 | Invalid suffix | unknown or disallowed unit |
-| -160 / -161 | Block data error / Invalid block data | a message ended inside a definite-length block |
+| -160 / -161 | Block data error / Invalid block data | a message ended inside a block (after its `#`, in its length or data); a lone `#` before `;`, `,` or whitespace |
 | -200 | Execution error | (for your use) |
 | -220 | Parameter error | invalid arguments to a parser (a programming error) |
 | -222 | Data out of range | a number outside its range |

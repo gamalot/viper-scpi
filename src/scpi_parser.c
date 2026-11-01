@@ -353,6 +353,14 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
             if (te == ts) {
                 return VIPER_SCPI_RES_ERR_SYNTAX; /* empty parameter */
             }
+            if (p[ts] == '#' && (te == ts + 1 || viper_scpi_is_space(p[ts + 1]))) {
+                /* '#' begins only non-decimal numbers (#H/#Q/#B, IEEE 488.2
+                 * 7.7.4) and blocks (#<digit>, 7.7.6); a '#' followed by a
+                 * separator or whitespace begins neither. Reported like a
+                 * block cut short at the '#', so the code does not depend on
+                 * whether the message happened to end there. */
+                return VIPER_SCPI_RES_ERR_INVALID_BLOCK;
+            }
         }
         if (ctx->param_count >= VIPER_SCPI_MAX_PARAMS) {
             return VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED;
@@ -796,9 +804,11 @@ static void finish_line(viper_scpi_context_t *ctx)
         output_reset(ctx);
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
     }
-    if (ctx->block_state == BLK_LENGTH || ctx->block_state == BLK_DATA) {
-        /* The message ended inside a definite-length block: the controller
-         * did not send what it declared, so the command must not run. */
+    if (ctx->block_state == BLK_HASH || ctx->block_state == BLK_LENGTH ||
+        ctx->block_state == BLK_DATA) {
+        /* The message ended inside a block -- right after its '#', in its
+         * length digits or in its data: the controller did not send what it
+         * started, so no command of the message runs. */
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INVALID_BLOCK);
         ctx->msg_started = 0;
     } else if (ctx->overflow) {
@@ -1024,6 +1034,13 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
             ctx->block_remaining = 0;
             store(ctx, c);
             return;
+        }
+        if (c == '\n' && !lf_separates(ctx)) {
+            finish_line(ctx); /* message ends on the '#': -161 */
+            return;
+        }
+        if (c == '\r' || c == '\0') {
+            return; /* ignored as everywhere; "#\r\n" ends like "#\n" */
         }
         ctx->block_state = BLK_NONE; /* "#H..." etc.: ordinary character */
         break;

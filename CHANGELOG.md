@@ -6,6 +6,14 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Fixed
+- A message that ends right after a block's `#` (EOM, or LF on a stream
+  transport) is dropped with `-161`, like one that ends later in the block;
+  it used to run with `#` as the parameter (e.g. `-224` from a choice
+  parser, or acted upon by a raw/string parameter). A `#` followed by `;`,
+  `,` or whitespace now fails that command with `-161` as well. `#H`, `#Q`,
+  `#B`, other `#`+letter text, `#0` and complete blocks are unchanged.
+
 ### Added
 - `VIPER_SCPI_RES_ERR_SUFFIX_RANGE` (-114, "Header suffix out of range") for
   callbacks that reject a numeric suffix.

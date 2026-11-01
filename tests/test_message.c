@@ -533,6 +533,47 @@ static void test_newline_inside_string(void)
     CHECK_STR(g_name, "");
 }
 
+static void test_lone_hash_at_eom(void)
+{
+    char buf[64];
+    int reads;
+
+    /* 5.1: the message ends right after a block's '#'. */
+    q_setup();
+    q_send("STR 'keep'");
+    q_send("STR #");
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK_STR(s_str, "keep");                        /* callback not called */
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    q_send("*OPC?");                                 /* next message unaffected */
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "1\n");
+
+    /* A queued reply is handled as for any other new message. */
+    q_send("*IDN?");
+    q_send("STR #");
+    CHECK_INT(viper_scpi_error_pop(&q), -410);
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK(!viper_scpi_output_pending(&q));
+
+    /* Earlier commands of the message do not run either (as in 1.2). */
+    q_send("STR 'a';STR #");
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK_STR(s_str, "keep");
+
+    /* '#' followed by a separator: only that command fails. */
+    q_send("STR #;STR 'b'");
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK_STR(s_str, "b");
+
+    /* Unchanged: complete blocks, #0, '#' inside a string. */
+    q_send("STR '#'");
+    CHECK_STR(s_str, "#");
+    q_send("DATA #0abc");                           /* complete indefinite block */
+    CHECK_INT(viper_scpi_error_pop(&q), -104);      /* DATA wants a number */
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
 int main(void)
 {
     test_queued_reply();
@@ -552,5 +593,6 @@ int main(void)
     test_input_discard_keeps_reply();
     test_serial_poll_rqs();
     test_newline_inside_string();
+    test_lone_hash_at_eom();
     return test_summary("test_message");
 }

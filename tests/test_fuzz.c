@@ -175,6 +175,7 @@ static size_t make_message(char *buf, size_t size)
         "*SRE 16", "*ESE 1", "M 0", "M 1", "M 2", "M 3", "M 4", "M 1500", "M 2995",
         "UPL #14abcd", "UPL 'f',#211\n;\"#,abc;", "UPL #3150", "UPL #15ab", "UPL #10",
         "CHAN2:X?", "CHAN:AB:Y:Z:W3:Q?", "TEMP? 'a\nb'", "X? #0zz", "BOGUS", ":X",
+        "M #", "M #,1", "M # 2", "UPL #", "M #H1F",
     };
     size_t n = 0;
     unsigned count = 1u + rng() % 4u;
