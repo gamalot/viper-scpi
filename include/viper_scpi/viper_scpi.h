@@ -203,6 +203,32 @@ size_t viper_scpi_output_read(viper_scpi_context_t *ctx, uint8_t *dst, size_t ma
 /** Drop what is left of the queued response (e.g. USBTMC ABORT_BULK_IN). */
 void viper_scpi_output_discard(viper_scpi_context_t *ctx);
 
+/* ---- Overlapped commands --------------------------------------------- *
+ * A callback that starts a slow operation calls viper_scpi_op_begin() and
+ * returns; the application calls viper_scpi_op_end() when it finishes. While
+ * any operation is pending, *OPC sets OPC only on completion, *OPC? answers
+ * only on completion, and *WAI suspends the rest of the message. Suspended
+ * execution resumes from viper_scpi_poll(). Call all of these from the same
+ * context as the input functions (not from an interrupt). */
+
+/** One more operation is pending. */
+void viper_scpi_op_begin(viper_scpi_context_t *ctx);
+/** One pending operation finished. When none remain, an armed *OPC sets OPC
+ *  in the ESR (which can raise a service request). Ignored if none pending. */
+void viper_scpi_op_end(viper_scpi_context_t *ctx);
+/** True while at least one operation is pending. */
+bool viper_scpi_op_pending(const viper_scpi_context_t *ctx);
+/**
+ * True while a message is suspended by *WAI or by *OPC? waiting for pending
+ * operations. Input is refused meanwhile: a transport holds off the
+ * controller (USBTMC NAKs bulk-OUT, a UART deasserts RTS). Bytes fed anyway
+ * are dropped and reported as -363 at their message end.
+ */
+bool viper_scpi_busy(const viper_scpi_context_t *ctx);
+/** Resume a suspended message if no operation is pending; call it from the
+ *  main loop. Does nothing otherwise. */
+void viper_scpi_poll(viper_scpi_context_t *ctx);
+
 /* ---- Status registers ------------------------------------------------ */
 
 /** Set Event Status Register bits (e.g. VIPER_SCPI_ESR_URQ). */

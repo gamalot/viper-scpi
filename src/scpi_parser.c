@@ -48,6 +48,9 @@ static void emit(viper_scpi_context_t *ctx, const char *s, size_t n)
 
 bool viper_scpi_output_pending(const viper_scpi_context_t *ctx)
 {
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+        return false; /* the response message is not complete yet */
+    }
     return ctx->out_rd < ctx->out_len ||
            (ctx->out_block_active && ctx->out_block_done < ctx->out_block_total);
 }
@@ -56,6 +59,11 @@ size_t viper_scpi_output_read(viper_scpi_context_t *ctx, uint8_t *dst, size_t ma
 {
     const char *buf = ctx->cfg->output_buffer;
     size_t n = 0;
+
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+        *end = false; /* nothing readable until the message finishes */
+        return 0;
+    }
 
     while (n < max) {
         size_t text_end = ctx->out_block_active ? ctx->out_block_at : ctx->out_len;
@@ -596,16 +604,28 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
     viper_scpi_srq_update(ctx);
 }
 
-static void execute_line(viper_scpi_context_t *ctx)
+enum { BLK_NONE, BLK_HASH, BLK_LENGTH, BLK_DATA, BLK_INDEFINITE };
+
+static void input_reset(viper_scpi_context_t *ctx)
 {
-    size_t start = 0;
+    ctx->length = 0;
+    ctx->overflow = 0;
+    ctx->block_state = BLK_NONE;
+    ctx->quote = 0;
+    ctx->last = 0;
+}
+
+/*
+ * Executes the units of the buffered line from ctx->exec_pos. Returns early,
+ * keeping the line, when a unit suspends execution (*WAI, or *OPC? with
+ * operations pending); viper_scpi_poll() calls it again to continue.
+ */
+static void run_line(viper_scpi_context_t *ctx)
+{
+    size_t start = ctx->exec_pos;
     char quote = 0;
 
-    ctx->prefix_count = 0;
-    ctx->line_has_output = 0;
-    ctx->out_overflow = 0;
-
-    for (size_t i = 0; i <= ctx->length; i++) {
+    for (size_t i = start; i <= ctx->length; i++) {
         if (i < ctx->length) {
             char c = ctx->buffer[i];
             if (quote != 0) {
@@ -631,6 +651,10 @@ static void execute_line(viper_scpi_context_t *ctx)
         }
         execute_unit(ctx, ctx->buffer + start, i - start);
         start = i + 1;
+        if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+            ctx->exec_pos = start;
+            return;
+        }
     }
 
     if (ctx->line_has_output) {
@@ -642,22 +666,29 @@ static void execute_line(viper_scpi_context_t *ctx)
     if (ctx->out_overflow) {
         output_reset(ctx); /* -321 already queued; no partial reply */
     }
+    input_reset(ctx);
     viper_scpi_srq_update(ctx); /* MAV rose */
 }
 
-enum { BLK_NONE, BLK_HASH, BLK_LENGTH, BLK_DATA, BLK_INDEFINITE };
-
-static void input_reset(viper_scpi_context_t *ctx)
+static void execute_line(viper_scpi_context_t *ctx)
 {
-    ctx->length = 0;
-    ctx->overflow = 0;
-    ctx->block_state = BLK_NONE;
-    ctx->quote = 0;
-    ctx->last = 0;
+    ctx->prefix_count = 0;
+    ctx->line_has_output = 0;
+    ctx->out_overflow = 0;
+    ctx->exec_pos = 0;
+    run_line(ctx);
 }
 
 static void finish_line(viper_scpi_context_t *ctx)
 {
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+        /* Input was refused while suspended (viper_scpi_busy()). */
+        if (ctx->input_dropped) {
+            ctx->input_dropped = 0;
+            viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
+        }
+        return;
+    }
     if (ctx->length == 0 && !ctx->overflow) {
         input_reset(ctx);
         return; /* an empty line is not a program message */
@@ -674,7 +705,8 @@ static void finish_line(viper_scpi_context_t *ctx)
     } else if (ctx->overflow) {
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
     } else {
-        execute_line(ctx);
+        execute_line(ctx); /* resets the input unless it suspends */
+        return;
     }
     input_reset(ctx);
 }
@@ -707,11 +739,23 @@ viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx, const viper_scpi_
 
 void viper_scpi_input_discard(viper_scpi_context_t *ctx)
 {
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+        /* The buffer holds the rest of a message being executed, not
+         * partial input; only forget bytes refused meanwhile. */
+        ctx->input_dropped = 0;
+        return;
+    }
     input_reset(ctx);
 }
 
 void viper_scpi_device_clear(viper_scpi_context_t *ctx)
 {
+    /* IEEE 488.2: device clear returns to the Operation Complete Command
+     * and Query Idle States, so a suspended message and an armed *OPC are
+     * cancelled. Operations themselves belong to the application. */
+    ctx->wait = VIPER_SCPI_WAIT_NONE;
+    ctx->opc_armed = 0;
+    ctx->input_dropped = 0;
     viper_scpi_input_discard(ctx);
     ctx->prefix_count = 0;
     viper_scpi_output_discard(ctx);
@@ -724,6 +768,14 @@ void viper_scpi_device_clear(viper_scpi_context_t *ctx)
  */
 void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
 {
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+        if (c == '\n') {
+            finish_line(ctx);
+        } else {
+            ctx->input_dropped = 1;
+        }
+        return;
+    }
     switch (ctx->block_state) {
     case BLK_DATA:
         store(ctx, c);
@@ -809,4 +861,50 @@ void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t
 void viper_scpi_end_of_message(viper_scpi_context_t *ctx)
 {
     finish_line(ctx);
+}
+
+/* ---- Overlapped commands ------------------------------------------------------ */
+
+void viper_scpi_op_begin(viper_scpi_context_t *ctx)
+{
+    if (ctx->op_count < UINT8_MAX) {
+        ctx->op_count++;
+    }
+}
+
+void viper_scpi_op_end(viper_scpi_context_t *ctx)
+{
+    if (ctx->op_count == 0) {
+        return;
+    }
+    if (--ctx->op_count == 0 && ctx->opc_armed) {
+        ctx->opc_armed = 0;
+        viper_scpi_event_set(ctx, VIPER_SCPI_ESR_OPC); /* may raise SRQ */
+    }
+}
+
+bool viper_scpi_op_pending(const viper_scpi_context_t *ctx)
+{
+    return ctx->op_count != 0;
+}
+
+bool viper_scpi_busy(const viper_scpi_context_t *ctx)
+{
+    return ctx->wait != VIPER_SCPI_WAIT_NONE;
+}
+
+void viper_scpi_poll(viper_scpi_context_t *ctx)
+{
+    if (ctx->wait == VIPER_SCPI_WAIT_NONE || ctx->op_count != 0) {
+        return;
+    }
+    if (ctx->wait == VIPER_SCPI_WAIT_OPCQ) {
+        /* Finish the suspended *OPC? unit: its "1" follows any earlier
+         * response of the message, separated by ';'. */
+        ctx->wait = VIPER_SCPI_WAIT_NONE;
+        ctx->unit_has_output = 0;
+        viper_scpi_result_int(ctx, 1);
+    }
+    ctx->wait = VIPER_SCPI_WAIT_NONE;
+    run_line(ctx);
 }

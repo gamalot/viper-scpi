@@ -187,6 +187,13 @@ struct viper_scpi_context_s {
     uint8_t srq_prev;      /**< Service-request summary at the last check */
     uint8_t srq_new;       /**< Rising edge not yet taken */
     uint8_t rqs;           /**< Service requested and not yet polled */
+    /* Overlapped commands: a message suspended by *WAI or *OPC? resumes at
+     * exec_pos once no operation is pending. */
+    size_t exec_pos;
+    uint8_t op_count;      /**< Pending operations (op_begin - op_end) */
+    uint8_t wait;          /**< WAIT_* : why execution is suspended */
+    uint8_t opc_armed;     /**< *OPC given while operations were pending */
+    uint8_t input_dropped; /**< Bytes arrived while suspended */
     uint32_t block_remaining;
     uint8_t suffix_count;
     uint8_t prefix_count;

@@ -109,7 +109,8 @@ static const viper_scpi_config_t cfg = {
 | abort of a reply (USBTMC ABORT_BULK_IN) | `viper_scpi_output_discard()` |
 | abort of incoming data only (USBTMC ABORT_BULK_OUT, CLEAR_FEATURE on bulk OUT, VXI-11 abort) | `viper_scpi_input_discard()`: the queued reply stays readable |
 | device clear (viClear, USBTMC INITIATE_CLEAR, VXI-11 device_clear) | `viper_scpi_device_clear()` |
-| main loop | `if (viper_scpi_take_service_request(ctx))` raise SRQ |
+| main loop | `viper_scpi_poll(ctx)`; `if (viper_scpi_take_service_request(ctx))` raise SRQ |
+| before accepting more bytes | hold off while `viper_scpi_busy(ctx)` (overlapped commands) |
 | serial poll / READ_STATUS_BYTE / device_readstb | `viper_scpi_serial_poll()`: bit 6 is RQS, cleared by the poll |
 | SRQ notification that carries the status byte (USB488 interrupt-IN) | `viper_scpi_rqs_delivered()` after sending it: that notification *is* the poll |
 
@@ -140,6 +141,39 @@ What changes in this mode:
 `viper_scpi_device_clear()` drops a partly received message, the
 compound-header path and the queued reply; the status registers and the error
 queue are kept, as 488.2 requires of DCL/SDC.
+
+## Overlapped commands: `*OPC`, `*OPC?`, `*WAI`
+
+A command that starts a slow operation (a measurement, a relay settling, a
+sweep) need not block. Its callback calls `viper_scpi_op_begin(ctx)` and
+returns; the application calls `viper_scpi_op_end(ctx)` when the operation
+finishes. Operations are counted, so several may overlap.
+
+| While an operation is pending | Behaviour |
+| --- | --- |
+| `*OPC` | arms; OPC is set in the ESR by the last `op_end()`, which can raise a service request edge |
+| `*OPC?` | the rest of the message is suspended; the `1` is produced on completion |
+| `*WAI` | the rest of the message is suspended until completion |
+| no operation pending | all three complete at once, as before |
+
+Suspension never blocks. The unexecuted units stay in the line buffer, and
+`viper_scpi_poll(ctx)`, called from the main loop, resumes them once no
+operation is pending. Meanwhile:
+
+- `viper_scpi_busy(ctx)` is true and input is refused: the transport holds the
+  controller off (USBTMC NAKs bulk-OUT, a UART deasserts RTS or buffers).
+  Bytes fed anyway are dropped and reported as `-363` at their message end.
+- In the message-exchange model the response is not readable (MAV clear,
+  `viper_scpi_output_read()` returns nothing) until the message finishes; in
+  the stream model responses already produced have been written.
+- `viper_scpi_device_clear()` cancels the suspended message and an armed
+  `*OPC` or waiting `*OPC?` (IEEE 488.2 Operation Complete Command/Query Idle
+  States). `*CLS` and `*RST` also disarm `*OPC`. The operations themselves
+  belong to the application and are not touched.
+
+Call these functions from the same context as the input functions, not from
+an interrupt; an ISR should set a flag that the main loop turns into
+`viper_scpi_op_end()`.
 
 ## Command tree registration
 
@@ -327,7 +361,6 @@ The same checks can be run locally; see the commands in the workflow file.
 - `UP`/`DOWN` and `INFinity`/`NAN` numeric keywords are not implemented.
 - Unit conversion is multiplicative only (no offsets such as degF).
 - Floating point I/O uses `strtod`/`snprintf` from the C library.
-- Commands execute synchronously, so `*WAI` and `*OPC` complete immediately.
 - In the message-exchange model a reply holds at most one generated block,
   and lines separated by `\n` inside one transport message are separate
   program messages (so a query on the first line is interrupted by the second).

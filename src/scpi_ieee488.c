@@ -21,6 +21,7 @@ static viper_scpi_result_t cmd_idn(viper_scpi_context_t *ctx)
 
 static viper_scpi_result_t cmd_rst(viper_scpi_context_t *ctx)
 {
+    ctx->opc_armed = 0; /* Operation Complete Command Idle State */
     if (ctx->cfg->reset != NULL) {
         ctx->cfg->reset(ctx);
     }
@@ -41,13 +42,22 @@ static viper_scpi_result_t cmd_cls(viper_scpi_context_t *ctx)
 {
     viper_scpi_error_clear(ctx);
     ctx->esr = 0;
+    ctx->opc_armed = 0; /* back to Operation Complete Command Idle State */
     return VIPER_SCPI_RES_OK;
 }
 
 static viper_scpi_result_t cmd_opc(viper_scpi_context_t *ctx)
 {
+    bool pending = viper_scpi_op_pending(ctx);
+
     if (viper_scpi_is_query(ctx)) {
-        viper_scpi_result_int(ctx, 1);
+        if (pending) {
+            ctx->wait = VIPER_SCPI_WAIT_OPCQ; /* "1" is written on resume */
+        } else {
+            viper_scpi_result_int(ctx, 1);
+        }
+    } else if (pending) {
+        ctx->opc_armed = 1; /* OPC is set by the last viper_scpi_op_end() */
     } else {
         viper_scpi_event_set(ctx, VIPER_SCPI_ESR_OPC);
     }
@@ -56,7 +66,9 @@ static viper_scpi_result_t cmd_opc(viper_scpi_context_t *ctx)
 
 static viper_scpi_result_t cmd_wai(viper_scpi_context_t *ctx)
 {
-    (void)ctx; /* Commands run synchronously, so nothing is ever pending. */
+    if (viper_scpi_op_pending(ctx)) {
+        ctx->wait = VIPER_SCPI_WAIT_WAI; /* resumed by viper_scpi_poll() */
+    }
     return VIPER_SCPI_RES_OK;
 }
 

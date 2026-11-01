@@ -52,6 +52,9 @@ viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
 /** PARAM_NOT_ALLOWED if the command carries parameters, else OK. */
 viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx);
 
+/** Why message execution is suspended (ctx->wait). */
+enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ };
+
 /** Re-evaluate the service-request condition and latch a rising edge. Call
  *  after anything that can change the status byte or SRE. */
 void viper_scpi_srq_update(viper_scpi_context_t *ctx);
