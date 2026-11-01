@@ -107,6 +107,7 @@ static const viper_scpi_config_t cfg = {
 | controller requests a reply of up to *n* bytes | `viper_scpi_output_read(ctx, buf, n, &end)`; send `end` as EOM/END |
 | request with nothing queued | push `VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED` (-420), let the controller time out |
 | abort of a reply (USBTMC ABORT_BULK_IN) | `viper_scpi_output_discard()` |
+| abort of incoming data only (USBTMC ABORT_BULK_OUT, CLEAR_FEATURE on bulk OUT, VXI-11 abort) | `viper_scpi_input_discard()`: the queued reply stays readable |
 | device clear (viClear, USBTMC INITIATE_CLEAR, VXI-11 device_clear) | `viper_scpi_device_clear()` |
 | main loop | `if (viper_scpi_take_service_request(ctx))` raise SRQ |
 | serial poll / READ_STATUS_BYTE | `viper_scpi_status_byte()` (bit 6 is MSS; keep RQS in the transport) |

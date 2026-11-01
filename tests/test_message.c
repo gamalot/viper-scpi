@@ -403,6 +403,40 @@ static void test_truncated_block_at_eom(void)
     CHECK_INT(viper_scpi_error_count(&q), 0);
 }
 
+static void test_input_discard_keeps_reply(void)
+{
+    char buf[64];
+    int reads;
+
+    q_setup();
+    q_send("*IDN?");
+    viper_scpi_input_buffer(&q, "*RST;DATA #19abc", 16);  /* half a message */
+    viper_scpi_input_discard(&q);
+    CHECK(viper_scpi_output_pending(&q));                /* reply survives */
+    CHECK_INT(viper_scpi_error_count(&q), 0);            /* no -410: no message */
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "Acme,Q,1,2\n");
+
+    /* The half message is gone, including its block state: the next bytes
+     * start a fresh message rather than being taken as block data. */
+    q_send("*OPC?");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "1\n");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+
+    /* Quote state is reset too. */
+    viper_scpi_input_buffer(&q, "*IDN? \"unterminated", 19);
+    viper_scpi_input_discard(&q);
+    q_send("*OPC?");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "1\n");
+
+    /* Discarding with nothing buffered is harmless. */
+    viper_scpi_input_discard(&q);
+    CHECK(!viper_scpi_output_pending(&q));
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
 int main(void)
 {
     test_queued_reply();
@@ -419,5 +453,6 @@ int main(void)
     test_trigger_hook();
     test_generated_block_stream_model();
     test_truncated_block_at_eom();
+    test_input_discard_keeps_reply();
     return test_summary("test_message");
 }

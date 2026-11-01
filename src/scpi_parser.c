@@ -705,9 +705,14 @@ viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx, const viper_scpi_
     return VIPER_SCPI_RES_OK;
 }
 
-void viper_scpi_device_clear(viper_scpi_context_t *ctx)
+void viper_scpi_input_discard(viper_scpi_context_t *ctx)
 {
     input_reset(ctx);
+}
+
+void viper_scpi_device_clear(viper_scpi_context_t *ctx)
+{
+    viper_scpi_input_discard(ctx);
     ctx->prefix_count = 0;
     viper_scpi_output_discard(ctx);
 }

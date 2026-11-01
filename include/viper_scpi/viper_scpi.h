@@ -39,6 +39,15 @@ void viper_scpi_end_of_message(viper_scpi_context_t *ctx);
  */
 void viper_scpi_device_clear(viper_scpi_context_t *ctx);
 
+/**
+ * Drop a partly received program message and nothing else: the queued
+ * response, the status registers and the error queue are kept. For a
+ * transport discarding input on its own (USBTMC INITIATE_ABORT_BULK_OUT or
+ * CLEAR_FEATURE on bulk OUT, a VXI-11 link abort) while the controller may
+ * still read a reply. viper_scpi_device_clear() includes it.
+ */
+void viper_scpi_input_discard(viper_scpi_context_t *ctx);
+
 /** User pointer from the configuration. */
 void *viper_scpi_user_data(const viper_scpi_context_t *ctx);
 
