@@ -6,6 +6,8 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-01
+
 ### Fixed
 - A message that ends right after a block's `#` (EOM, or LF on a stream
   transport) is dropped with `-161`, like one that ends later in the block;
@@ -17,7 +19,8 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 ### Added
 - `VIPER_SCPI_RES_ERR_SUFFIX_RANGE` (-114, "Header suffix out of range") for
   callbacks that reject a numeric suffix.
-- Documentation guides in `docs/`.
+- Documentation guides in `docs/`, and `tools/docs_to_wiki.py` to publish them
+  as the GitHub wiki.
 
 ## [0.2.0] - 2026-11-01
 
@@ -80,5 +83,7 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/gamalot/viper-scpi/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gamalot/viper-scpi/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gamalot/viper-scpi/releases/tag/v0.1.0

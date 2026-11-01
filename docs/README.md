@@ -5,9 +5,9 @@ Guides for using viper-scpi in an instrument. The project
 pieces fit together and how to integrate them with a real transport.
 
 The pages are plain Markdown kept next to the code and describe the current
-`main`. They were written after release 0.2.0, which they also describe apart
-from what the [CHANGELOG](../CHANGELOG.md) lists as unreleased; from the next
-release on, each release tag carries its own copy of `docs/`. The
+`main`. Each release tag carries its own copy of `docs/`, starting with
+[`v0.2.1`](https://github.com/gamalot/viper-scpi/tree/v0.2.1/docs); see the
+[CHANGELOG](../CHANGELOG.md) for what changed between releases. The
 [GitHub wiki](https://github.com/gamalot/viper-scpi/wiki) is generated from
 these files (`tools/docs_to_wiki.py`).
 
