@@ -4,9 +4,12 @@ Guides for using viper-scpi in an instrument. The project
 [README](../README.md) is the compact reference; these pages explain how the
 pieces fit together and how to integrate them with a real transport.
 
-The pages are plain Markdown kept next to the code, so the documentation of a
-release is the `docs/` folder at that release's tag (for example
-[`v0.2.0`](https://github.com/gamalot/viper-scpi/tree/v0.2.0/docs)).
+The pages are plain Markdown kept next to the code and describe the current
+`main`. They were written after release 0.2.0, which they also describe apart
+from what the [CHANGELOG](../CHANGELOG.md) lists as unreleased; from the next
+release on, each release tag carries its own copy of `docs/`. The
+[GitHub wiki](https://github.com/gamalot/viper-scpi/wiki) is generated from
+these files (`tools/docs_to_wiki.py`).
 
 | Page | What it covers |
 | --- | --- |
