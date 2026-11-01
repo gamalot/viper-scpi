@@ -381,6 +381,28 @@ A callback runs when its node is the last mnemonic of a command. Inside it:
 - Return a non-zero `viper_scpi_result_t` to push that error onto the queue.
   Use `viper_scpi_error_push()` for additional errors.
 
+## Error texts and detail
+
+Give the configuration a table for the instrument's own error numbers (and,
+if wanted, different texts for standard ones); it is searched before the
+built-in texts, which only the codes it lists are shadowed for:
+
+```c
+static const viper_scpi_error_text_t my_errors[] = {
+    { 101, "Relay stuck" },
+    { 0, NULL }
+};
+/* config: .error_texts = my_errors */
+```
+
+`viper_scpi_error_push_info(ctx, -222, "VOLT 31 exceeds 30")` adds detail that
+`SYSTem:ERRor?` appends as SCPI-99 allows: `-222,"Data out of range;VOLT 31
+exceeds 30"`. The string is not copied -- pass a literal or other static
+storage. Quotes in texts and detail are doubled in the response. When the queue
+overflows, the `-350` entry carries no detail. `viper_scpi_error_pop_info()`
+returns the detail to C code; `viper_scpi_error_text()` looks up a text the way
+`SYSTem:ERRor?` does.
+
 Callbacks must not call the `viper_scpi_input_*` functions.
 
 ## Input handling

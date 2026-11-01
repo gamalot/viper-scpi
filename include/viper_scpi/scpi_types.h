@@ -153,6 +153,12 @@ typedef struct {
     viper_scpi_block_stream_t handler;
 } viper_scpi_stream_node_t;
 
+/** Instrument error text; tables end with a NULL text. */
+typedef struct {
+    int16_t code;      /**< e.g. 100..32767 for device-defined errors */
+    const char *text;
+} viper_scpi_error_text_t;
+
 /**
  * Static configuration; must outlive the context. All fields optional
  * except that, without an output buffer, a NULL @c write discards responses.
@@ -180,6 +186,8 @@ typedef struct {
                                         except data from result_block_fill() */
     viper_scpi_trigger_t trigger;  /**< *TRG; without it *TRG is -113 */
     const viper_scpi_stream_node_t *stream_nodes; /**< Streaming block input */
+    const viper_scpi_error_text_t *error_texts;   /**< Searched before the
+                                                       built-in texts */
 } viper_scpi_config_t;
 
 /** SCPI status register sets, for viper_scpi_status_condition(). */
@@ -216,6 +224,7 @@ struct viper_scpi_context_s {
     viper_scpi_token_t params[VIPER_SCPI_MAX_PARAMS];
     size_t param_count;
     int16_t err_queue[VIPER_SCPI_ERROR_QUEUE_SIZE];
+    const char *err_info[VIPER_SCPI_ERROR_QUEUE_SIZE]; /**< Static detail or NULL */
     int32_t suffix[VIPER_SCPI_MAX_SUFFIXES]; /**< -1 = suffix omitted */
     /* Output queue (message-exchange model): text with at most one generated
      * block spliced in at out_block_at; read order is

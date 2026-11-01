@@ -180,12 +180,24 @@ void viper_scpi_result_text(viper_scpi_context_t *ctx, const char *str);
 
 /** Append an error (also sets the matching ESR bit). Overflow -> -350. */
 void viper_scpi_error_push(viper_scpi_context_t *ctx, int code);
+/**
+ * viper_scpi_error_push() with detail that SYSTem:ERRor? appends to the
+ * message: -222,"Data out of range;VOLT 31 exceeds 30". @p info is not copied
+ * and must stay valid until the error is read (static storage, a string
+ * literal). If the queue is full the entry becomes -350 without detail.
+ */
+void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char *info);
 /** Remove the oldest error; returns 0 if the queue is empty. */
 int viper_scpi_error_pop(viper_scpi_context_t *ctx);
+/** viper_scpi_error_pop() that also returns the entry's detail (or NULL). */
+int viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info);
 size_t viper_scpi_error_count(const viper_scpi_context_t *ctx);
 void viper_scpi_error_clear(viper_scpi_context_t *ctx);
-/** Standard message text for @p code. */
+/** Built-in message text for @p code ("Device-specific error" if unknown). */
 const char *viper_scpi_error_message(int code);
+/** Message text for @p code: the configuration's error_texts first, then the
+ *  built-in texts. */
+const char *viper_scpi_error_text(const viper_scpi_context_t *ctx, int code);
 
 /* ---- Output queue (message-exchange model, cfg->output_buffer) ------ */
 

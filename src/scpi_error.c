@@ -4,7 +4,7 @@
 static const struct {
     int16_t code;
     const char *text;
-} error_texts[] = {
+} builtin_texts[] = {
     { 0, "No error" },
     { VIPER_SCPI_RES_ERR_UNKNOWN_CMD, "Command error" },
     { VIPER_SCPI_RES_ERR_SYNTAX, "Syntax error" },
@@ -30,12 +30,23 @@ static const struct {
 
 const char *viper_scpi_error_message(int code)
 {
-    for (size_t i = 0; i < sizeof error_texts / sizeof error_texts[0]; i++) {
-        if (error_texts[i].code == code) {
-            return error_texts[i].text;
+    for (size_t i = 0; i < sizeof builtin_texts / sizeof builtin_texts[0]; i++) {
+        if (builtin_texts[i].code == code) {
+            return builtin_texts[i].text;
         }
     }
     return "Device-specific error";
+}
+
+const char *viper_scpi_error_text(const viper_scpi_context_t *ctx, int code)
+{
+    for (const viper_scpi_error_text_t *t = ctx->cfg->error_texts; t != NULL && t->text != NULL;
+         t++) {
+        if (t->code == code) {
+            return t->text;
+        }
+    }
+    return viper_scpi_error_message(code);
 }
 
 void viper_scpi_event_set(viper_scpi_context_t *ctx, uint8_t mask)
@@ -61,7 +72,7 @@ static uint8_t esr_bit_for(int code)
     return code > 0 ? VIPER_SCPI_ESR_DDE : 0;
 }
 
-void viper_scpi_error_push(viper_scpi_context_t *ctx, int code)
+void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char *info)
 {
     if (code == 0) {
         return;
@@ -72,25 +83,43 @@ void viper_scpi_error_push(viper_scpi_context_t *ctx, int code)
         /* Queue full: the newest entry becomes "Queue overflow". */
         size_t last = ((size_t)ctx->err_head + ctx->err_count - 1) % VIPER_SCPI_ERROR_QUEUE_SIZE;
         ctx->err_queue[last] = VIPER_SCPI_RES_ERR_QUEUE_OVERFLOW;
+        ctx->err_info[last] = NULL;
     } else {
-        ctx->err_queue[((size_t)ctx->err_head + ctx->err_count) % VIPER_SCPI_ERROR_QUEUE_SIZE] =
-            (int16_t)code;
+        size_t slot = ((size_t)ctx->err_head + ctx->err_count) % VIPER_SCPI_ERROR_QUEUE_SIZE;
+        ctx->err_queue[slot] = (int16_t)code;
+        ctx->err_info[slot] = info;
         ctx->err_count++;
     }
     viper_scpi_srq_update(ctx); /* EAV, and ESB through the ESR bit */
 }
 
-int viper_scpi_error_pop(viper_scpi_context_t *ctx)
+void viper_scpi_error_push(viper_scpi_context_t *ctx, int code)
+{
+    viper_scpi_error_push_info(ctx, code, NULL);
+}
+
+int viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info)
 {
     int code;
 
+    if (info != NULL) {
+        *info = NULL;
+    }
     if (ctx->err_count == 0) {
         return 0;
     }
     code = ctx->err_queue[ctx->err_head];
+    if (info != NULL) {
+        *info = ctx->err_info[ctx->err_head];
+    }
     ctx->err_head = (uint8_t)((ctx->err_head + 1) % VIPER_SCPI_ERROR_QUEUE_SIZE);
     ctx->err_count--;
     return code;
+}
+
+int viper_scpi_error_pop(viper_scpi_context_t *ctx)
+{
+    return viper_scpi_error_pop_info(ctx, NULL);
 }
 
 size_t viper_scpi_error_count(const viper_scpi_context_t *ctx)
@@ -182,6 +211,7 @@ void viper_scpi_rqs_delivered(viper_scpi_context_t *ctx)
 static viper_scpi_result_t cmd_syst_err_next(viper_scpi_context_t *ctx)
 {
     int code;
+    const char *info;
     viper_scpi_result_t res = viper_scpi_no_params(ctx);
 
     if (res != VIPER_SCPI_RES_OK) {
@@ -190,9 +220,9 @@ static viper_scpi_result_t cmd_syst_err_next(viper_scpi_context_t *ctx)
     if (!viper_scpi_is_query(ctx)) {
         return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
-    code = viper_scpi_error_pop(ctx);
+    code = viper_scpi_error_pop_info(ctx, &info);
     viper_scpi_result_int(ctx, code);
-    viper_scpi_result_string(ctx, viper_scpi_error_message(code));
+    viper_scpi_result_string_pair(ctx, viper_scpi_error_text(ctx, code), info);
     return VIPER_SCPI_RES_OK;
 }
 

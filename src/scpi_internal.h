@@ -49,6 +49,10 @@ viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
                                                 const char *name, size_t len,
                                                 bool query);
 
+/** Quoted string response made of @p a, then ";" and @p b if @p b is not
+ *  NULL, with embedded quotes doubled. */
+void viper_scpi_result_string_pair(viper_scpi_context_t *ctx, const char *a, const char *b);
+
 /** PARAM_NOT_ALLOWED if the command carries parameters, else OK. */
 viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx);
 

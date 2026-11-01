@@ -246,12 +246,11 @@ void viper_scpi_result_block_fill(viper_scpi_context_t *ctx, uint32_t len,
     }
 }
 
-void viper_scpi_result_string(viper_scpi_context_t *ctx, const char *str)
+/* String body with embedded double quotes doubled. */
+static void emit_escaped(viper_scpi_context_t *ctx, const char *str)
 {
     const char *run = str;
 
-    result_begin(ctx);
-    emit(ctx, "\"", 1);
     for (const char *p = str; *p != '\0'; p++) {
         if (*p == '"') {
             emit(ctx, run, (size_t)(p - run) + 1); /* text and the quote */
@@ -260,7 +259,23 @@ void viper_scpi_result_string(viper_scpi_context_t *ctx, const char *str)
         }
     }
     emit(ctx, run, strlen(run));
+}
+
+void viper_scpi_result_string_pair(viper_scpi_context_t *ctx, const char *a, const char *b)
+{
+    result_begin(ctx);
     emit(ctx, "\"", 1);
+    emit_escaped(ctx, a);
+    if (b != NULL) {
+        emit(ctx, ";", 1);
+        emit_escaped(ctx, b);
+    }
+    emit(ctx, "\"", 1);
+}
+
+void viper_scpi_result_string(viper_scpi_context_t *ctx, const char *str)
+{
+    viper_scpi_result_string_pair(ctx, str, NULL);
 }
 
 /* ---- Small accessors --------------------------------------------------- */
