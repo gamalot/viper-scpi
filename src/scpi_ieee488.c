@@ -1,6 +1,4 @@
 /* IEEE 488.2 mandatory common commands. */
-#include <string.h>
-
 #include "scpi_internal.h"
 
 static viper_scpi_result_t cmd_idn(viper_scpi_context_t *ctx)
@@ -154,8 +152,8 @@ viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
                                                 bool query)
 {
     for (size_t i = 0; i < sizeof common_cmds / sizeof common_cmds[0]; i++) {
-        if (strlen(common_cmds[i].name) != len ||
-            !viper_scpi_pattern_match(common_cmds[i].name, name, len)) {
+        /* The names are all upper case, so only the full name matches. */
+        if (!viper_scpi_pattern_match(common_cmds[i].name, name, len)) {
             continue;
         }
         if ((common_cmds[i].kind & (query ? KIND_QUERY : KIND_COMMAND)) == 0) {

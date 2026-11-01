@@ -245,17 +245,15 @@ static const struct {
     { "F", 1e-15 }, { "A", 1e-18 },
 };
 
+/* a[0..alen) equals the NUL-terminated b, ignoring case. */
 static bool equals_nocase(const char *a, size_t alen, const char *b)
 {
-    if (strlen(b) != alen) {
-        return false;
-    }
     for (size_t i = 0; i < alen; i++) {
-        if (viper_scpi_upper(a[i]) != viper_scpi_upper(b[i])) {
+        if (b[i] == '\0' || viper_scpi_upper(a[i]) != viper_scpi_upper(b[i])) {
             return false;
         }
     }
-    return true;
+    return b[alen] == '\0';
 }
 
 /* Resolves a suffix such as "MV" or "KHZ" to a factor to the base unit. */
@@ -273,7 +271,7 @@ static bool lookup_unit(const viper_scpi_unit_t *units, const char *sfx, size_t 
             continue;
         }
         for (size_t i = 0; i < sizeof prefixes / sizeof prefixes[0]; i++) {
-            size_t pl = strlen(prefixes[i].name);
+            size_t pl = prefixes[i].name[1] != '\0' ? 2u : 1u; /* "EX" or "K" */
             double f = prefixes[i].factor;
 
             if (n <= pl || !equals_nocase(sfx, pl, prefixes[i].name) ||

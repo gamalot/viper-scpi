@@ -1,6 +1,9 @@
 /* SCPI error queue, status byte helpers and the built-in SYSTem subtree. */
 #include "scpi_internal.h"
 
+/* Sorted by code, descending, and grouped by class. Searched linearly: at
+ * this size a search is not worth the code; the instrument's own texts are a
+ * separate table (viper_scpi_config_t.error_texts). */
 static const struct {
     int16_t code;
     const char *text;

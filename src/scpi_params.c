@@ -23,9 +23,31 @@ static bool match_name(const char *name, size_t nlen, const char *tok, size_t le
     return true;
 }
 
+/* Same rule as match_name() for a NUL-terminated pattern, without a strlen():
+ * the token must equal the whole pattern, or exactly its leading run of
+ * characters that are not lower case. */
 bool viper_scpi_pattern_match(const char *pattern, const char *tok, size_t len)
 {
-    return match_name(pattern, strlen(pattern), tok, len);
+    if (len == 0) {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++) {
+        if (pattern[i] == '\0' || viper_scpi_upper(pattern[i]) != viper_scpi_upper(tok[i])) {
+            return false;
+        }
+    }
+    if (pattern[len] == '\0') {
+        return true; /* long form */
+    }
+    if (!(pattern[len] >= 'a' && pattern[len] <= 'z')) {
+        return false; /* stops inside the short form */
+    }
+    for (size_t i = 0; i < len; i++) {
+        if (pattern[i] >= 'a' && pattern[i] <= 'z') {
+            return false; /* longer than the short form */
+        }
+    }
+    return true;
 }
 
 int viper_scpi_pattern_next(const char **p, viper_scpi_pattern_item_t *item)
