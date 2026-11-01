@@ -7,11 +7,93 @@
 
 /* ---- Output ---------------------------------------------------------- */
 
+static bool queued(const viper_scpi_context_t *ctx)
+{
+    return ctx->cfg->output_buffer != NULL;
+}
+
+static void output_reset(viper_scpi_context_t *ctx)
+{
+    ctx->out_len = 0;
+    ctx->out_rd = 0;
+    ctx->out_block_active = 0;
+}
+
 static void emit(viper_scpi_context_t *ctx, const char *s, size_t n)
 {
-    if (ctx->cfg->write != NULL && n > 0) {
-        (void)ctx->cfg->write(ctx->user_data, s, n);
+    const viper_scpi_config_t *cfg = ctx->cfg;
+
+    if (n == 0) {
+        return;
     }
+    if (!queued(ctx)) {
+        if (cfg->write != NULL) {
+            (void)cfg->write(ctx->user_data, s, n);
+        }
+        return;
+    }
+    if (ctx->out_overflow) {
+        return;
+    }
+    if (n > cfg->output_size - ctx->out_len) {
+        /* The whole response is dropped at the end of the line rather than
+         * handed out truncated: a cut-off reply reads as a valid one. */
+        ctx->out_overflow = 1;
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_MEMORY);
+        return;
+    }
+    memcpy(cfg->output_buffer + ctx->out_len, s, n);
+    ctx->out_len += n;
+}
+
+bool viper_scpi_output_pending(const viper_scpi_context_t *ctx)
+{
+    return ctx->out_rd < ctx->out_len ||
+           (ctx->out_block_active && ctx->out_block_done < ctx->out_block_total);
+}
+
+size_t viper_scpi_output_read(viper_scpi_context_t *ctx, uint8_t *dst, size_t max, bool *end)
+{
+    const char *buf = ctx->cfg->output_buffer;
+    size_t n = 0;
+
+    while (n < max) {
+        size_t text_end = ctx->out_block_active ? ctx->out_block_at : ctx->out_len;
+        size_t k;
+
+        if (ctx->out_rd < text_end || (ctx->out_rd < ctx->out_len &&
+                                       ctx->out_block_done >= ctx->out_block_total)) {
+            /* text before the block, or after it once it is done */
+            size_t stop = (ctx->out_rd < text_end) ? text_end : ctx->out_len;
+            k = stop - ctx->out_rd;
+            if (k > max - n) {
+                k = max - n;
+            }
+            memcpy(dst + n, buf + ctx->out_rd, k);
+            ctx->out_rd += k;
+        } else if (ctx->out_block_active && ctx->out_block_done < ctx->out_block_total) {
+            uint32_t left = ctx->out_block_total - ctx->out_block_done;
+            k = (left < max - n) ? (size_t)left : max - n;
+            ctx->out_fill(ctx->out_fill_user, dst + n, ctx->out_block_done, k);
+            ctx->out_block_done += (uint32_t)k;
+        } else {
+            break;
+        }
+        n += k;
+    }
+
+    *end = !viper_scpi_output_pending(ctx);
+    if (*end) {
+        output_reset(ctx);
+        viper_scpi_srq_update(ctx); /* MAV fell */
+    }
+    return n;
+}
+
+void viper_scpi_output_discard(viper_scpi_context_t *ctx)
+{
+    output_reset(ctx);
+    viper_scpi_srq_update(ctx);
 }
 
 /* Writes the separator that precedes a response value. */
@@ -73,7 +155,9 @@ void viper_scpi_result_double(viper_scpi_context_t *ctx, double value)
     emit(ctx, s, strlen(s));
 }
 
-void viper_scpi_result_block(viper_scpi_context_t *ctx, const void *data, size_t len)
+/* Writes the separator and "#<n><length>"; false if the length needs more
+ * than the nine digits a definite-length header can carry. */
+static bool block_header(viper_scpi_context_t *ctx, size_t len)
 {
     char hdr[16];
     unsigned digits = 1;
@@ -84,12 +168,58 @@ void viper_scpi_result_block(viper_scpi_context_t *ctx, const void *data, size_t
     }
     if (digits > 9) {
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
-        return;
+        return false;
     }
     n = snprintf(hdr, sizeof hdr, "#%u%lu", digits, (unsigned long)len);
     result_begin(ctx);
     emit(ctx, hdr, (size_t)n);
-    emit(ctx, (const char *)data, len);
+    return true;
+}
+
+void viper_scpi_result_block(viper_scpi_context_t *ctx, const void *data, size_t len)
+{
+    if (block_header(ctx, len)) {
+        emit(ctx, (const char *)data, len);
+    }
+}
+
+void viper_scpi_result_block_fill(viper_scpi_context_t *ctx, uint32_t len,
+                                  viper_scpi_block_fill_t fill, void *fill_user)
+{
+    if (fill == NULL) {
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_EXECUTION);
+        return;
+    }
+    if (queued(ctx) && ctx->out_block_active) {
+        /* One generated block per response: there is nowhere to put a second. */
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY);
+        return;
+    }
+    if (!block_header(ctx, len)) {
+        return;
+    }
+
+    if (queued(ctx)) {
+        if (ctx->out_overflow) {
+            return;
+        }
+        ctx->out_block_active = 1;
+        ctx->out_block_at = ctx->out_len;
+        ctx->out_block_total = len;
+        ctx->out_block_done = 0;
+        ctx->out_fill = fill;
+        ctx->out_fill_user = fill_user;
+        return;
+    }
+
+    /* Stream model: produce and write it now, a chunk at a time. */
+    for (uint32_t off = 0; off < len;) {
+        uint8_t chunk[64];
+        size_t k = (len - off < sizeof chunk) ? (size_t)(len - off) : sizeof chunk;
+        fill(fill_user, chunk, off, k);
+        emit(ctx, (const char *)chunk, k);
+        off += (uint32_t)k;
+    }
 }
 
 void viper_scpi_result_string(viper_scpi_context_t *ctx, const char *str)
@@ -447,6 +577,7 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
     if (res != VIPER_SCPI_RES_OK) {
         viper_scpi_error_push(ctx, (int)res);
     }
+    viper_scpi_srq_update(ctx);
 }
 
 static void execute_line(viper_scpi_context_t *ctx)
@@ -456,6 +587,7 @@ static void execute_line(viper_scpi_context_t *ctx)
 
     ctx->prefix_count = 0;
     ctx->line_has_output = 0;
+    ctx->out_overflow = 0;
 
     for (size_t i = 0; i <= ctx->length; i++) {
         if (i < ctx->length) {
@@ -488,22 +620,43 @@ static void execute_line(viper_scpi_context_t *ctx)
     if (ctx->line_has_output) {
         emit(ctx, "\n", 1);
     }
+    /* The response message is complete; separators start afresh. */
+    ctx->line_has_output = 0;
+    ctx->unit_has_output = 0;
+    if (ctx->out_overflow) {
+        output_reset(ctx); /* -321 already queued; no partial reply */
+    }
+    viper_scpi_srq_update(ctx); /* MAV rose */
 }
 
 enum { BLK_NONE, BLK_HASH, BLK_LENGTH, BLK_DATA, BLK_INDEFINITE };
 
-static void finish_line(viper_scpi_context_t *ctx)
+static void input_reset(viper_scpi_context_t *ctx)
 {
-    if (ctx->overflow) {
-        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
-    } else {
-        execute_line(ctx);
-    }
     ctx->length = 0;
     ctx->overflow = 0;
     ctx->block_state = BLK_NONE;
     ctx->quote = 0;
     ctx->last = 0;
+}
+
+static void finish_line(viper_scpi_context_t *ctx)
+{
+    if (ctx->length == 0 && !ctx->overflow) {
+        input_reset(ctx);
+        return; /* an empty line is not a program message */
+    }
+    if (queued(ctx) && viper_scpi_output_pending(ctx)) {
+        /* IEEE 488.2 6.3.2.3: a new message over an unread reply ends it. */
+        output_reset(ctx);
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
+    }
+    if (ctx->overflow) {
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
+    } else {
+        execute_line(ctx);
+    }
+    input_reset(ctx);
 }
 
 static void store(viper_scpi_context_t *ctx, char c)
@@ -528,7 +681,15 @@ viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx, const viper_scpi_
     memset(ctx, 0, sizeof *ctx);
     ctx->cfg = cfg;
     ctx->user_data = cfg->user_data;
+    ctx->esr = VIPER_SCPI_ESR_PON; /* IEEE 488.2 11.5.1.1.2: power on */
     return VIPER_SCPI_RES_OK;
+}
+
+void viper_scpi_device_clear(viper_scpi_context_t *ctx)
+{
+    input_reset(ctx);
+    ctx->prefix_count = 0;
+    viper_scpi_output_discard(ctx);
 }
 
 /*
@@ -611,7 +772,5 @@ void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t
 
 void viper_scpi_end_of_message(viper_scpi_context_t *ctx)
 {
-    if (ctx->length > 0 || ctx->overflow) {
-        finish_line(ctx);
-    }
+    finish_line(ctx);
 }

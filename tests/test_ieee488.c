@@ -228,6 +228,27 @@ static void test_event_set(void)
     CHECK_STR(fx_out(), "64\n");
 }
 
+static void test_power_on(void)
+{
+    viper_scpi_context_t c;
+
+    /* A fresh context reports the power-on event once (488.2 11.5.1.1.2). */
+    fx_setup();
+    CHECK_INT(viper_scpi_init(&c, g_ctx.cfg), 0);
+    viper_scpi_input_buffer(&c, "*ESR?\n*ESR?\n", 12);
+    CHECK_STR(fx_out(), "128\n0\n");
+}
+
+static void test_trg(void)
+{
+    /* The fixture has no trigger hook: *TRG does not exist. */
+    fx_setup();
+    fx_send("*TRG");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -113);
+    fx_send("*TRG?");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -113);
+}
+
 int main(void)
 {
     test_idn();
@@ -243,5 +264,7 @@ int main(void)
     test_malformed_common_commands();
     test_combined_line();
     test_event_set();
+    test_power_on();
+    test_trg();
     return test_summary("test_ieee488");
 }

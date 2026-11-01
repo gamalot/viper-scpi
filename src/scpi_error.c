@@ -18,8 +18,12 @@ static const struct {
     { VIPER_SCPI_RES_ERR_PARAM_INVALID, "Parameter error" },
     { VIPER_SCPI_RES_ERR_OUT_OF_RANGE, "Data out of range" },
     { VIPER_SCPI_RES_ERR_ILLEGAL_VALUE, "Illegal parameter value" },
+    { VIPER_SCPI_RES_ERR_OUT_OF_MEMORY, "Out of memory" },
     { VIPER_SCPI_RES_ERR_QUEUE_OVERFLOW, "Queue overflow" },
     { VIPER_SCPI_RES_ERR_INPUT_OVERRUN, "Input buffer overrun" },
+    { VIPER_SCPI_RES_ERR_QUERY, "Query error" },
+    { VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED, "Query INTERRUPTED" },
+    { VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED, "Query UNTERMINATED" },
 };
 
 const char *viper_scpi_error_message(int code)
@@ -35,6 +39,7 @@ const char *viper_scpi_error_message(int code)
 void viper_scpi_event_set(viper_scpi_context_t *ctx, uint8_t mask)
 {
     ctx->esr = (uint8_t)(ctx->esr | mask);
+    viper_scpi_srq_update(ctx);
 }
 
 static uint8_t esr_bit_for(int code)
@@ -65,11 +70,12 @@ void viper_scpi_error_push(viper_scpi_context_t *ctx, int code)
         /* Queue full: the newest entry becomes "Queue overflow". */
         size_t last = ((size_t)ctx->err_head + ctx->err_count - 1) % VIPER_SCPI_ERROR_QUEUE_SIZE;
         ctx->err_queue[last] = VIPER_SCPI_RES_ERR_QUEUE_OVERFLOW;
-        return;
+    } else {
+        ctx->err_queue[((size_t)ctx->err_head + ctx->err_count) % VIPER_SCPI_ERROR_QUEUE_SIZE] =
+            (int16_t)code;
+        ctx->err_count++;
     }
-    ctx->err_queue[((size_t)ctx->err_head + ctx->err_count) % VIPER_SCPI_ERROR_QUEUE_SIZE] =
-        (int16_t)code;
-    ctx->err_count++;
+    viper_scpi_srq_update(ctx); /* EAV, and ESB through the ESR bit */
 }
 
 int viper_scpi_error_pop(viper_scpi_context_t *ctx)
@@ -103,6 +109,9 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx)
     if (ctx->err_count > 0) {
         stb |= VIPER_SCPI_STB_EAV;
     }
+    if (viper_scpi_output_pending(ctx)) {
+        stb |= VIPER_SCPI_STB_MAV;
+    }
     if ((ctx->esr & ctx->ese) != 0) {
         stb |= VIPER_SCPI_STB_ESB;
     }
@@ -110,6 +119,26 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx)
         stb |= VIPER_SCPI_STB_MSS;
     }
     return stb;
+}
+
+void viper_scpi_srq_update(viper_scpi_context_t *ctx)
+{
+    bool now = (viper_scpi_status_byte(ctx) & ctx->sre & ~VIPER_SCPI_STB_MSS) != 0;
+
+    if (now && ctx->srq_prev == 0) {
+        ctx->srq_new = 1;
+    }
+    ctx->srq_prev = now ? 1u : 0u;
+}
+
+bool viper_scpi_take_service_request(viper_scpi_context_t *ctx)
+{
+    bool taken;
+
+    viper_scpi_srq_update(ctx);
+    taken = ctx->srq_new != 0;
+    ctx->srq_new = 0;
+    return taken;
 }
 
 /* ---- Built-in SYSTem subtree ------------------------------------------------- */

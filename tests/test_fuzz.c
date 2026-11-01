@@ -59,7 +59,7 @@ static const viper_scpi_node_t root[] = {
     { "[:A][:B]", cb, leaf },
     VIPER_SCPI_NODE_END
 };
-static const viper_scpi_config_t config = { root, sink, NULL, NULL, NULL, NULL, NULL, NULL };
+static const viper_scpi_config_t config = { .root = root, .write = sink };
 
 static uint32_t rng_state = 2463534242u;
 

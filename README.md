@@ -35,9 +35,14 @@ and writes responses through a function pointer you provide.
 - IEEE 488.2 arbitrary block data, definite (`#15hello`) and indefinite
   (`#0...`), as parameters and as responses.
 - IEEE 488.2 commands: `*IDN?`, `*RST`, `*CLS`, `*OPC`, `*OPC?`, `*WAI`,
-  `*STB?`, `*ESR?`, plus `*ESE`, `*ESE?`, `*SRE`, `*SRE?`, `*TST?`.
+  `*STB?`, `*ESR?`, plus `*ESE`, `*ESE?`, `*SRE`, `*SRE?`, `*TST?` and, with a
+  trigger hook, `*TRG`. The ESR reports PON after `viper_scpi_init()`.
 - SCPI error queue with `SYSTem:ERRor[:NEXT]?`, `SYSTem:ERRor:COUNt?` and
   `SYSTem:VERSion?` built in.
+- Two output models: streaming to a `write` function (UART, raw TCP), or a
+  response queue the transport reads from (USBTMC, VXI-11, HiSLIP, GPIB
+  device), with MAV, `-410` Query INTERRUPTED, device clear, service-request
+  edges and arbitrarily large generated block responses.
 
 ## Quick start
 
@@ -74,6 +79,60 @@ static viper_scpi_context_t scpi;
 void app_init(void)        { viper_scpi_init(&scpi, &cfg); }
 void uart_rx_byte(char c)  { viper_scpi_input_char(&scpi, c); }
 ```
+
+Use designated initializers for `viper_scpi_config_t`, as above: fields are
+added at the end over time, and a positional initializer then trips
+`-Wmissing-field-initializers`.
+
+## Message-exchange transports (USBTMC, VXI-11, HiSLIP, GPIB device)
+
+On these transports the controller *asks* for a reply, possibly in several
+pieces, and IEEE 488.2 attaches rules to the reply that sits waiting. Give the
+configuration an output buffer and the library keeps the reply instead of
+writing it:
+
+```c
+static char reply[512];                          /* one response message */
+static const viper_scpi_config_t cfg = {
+    .root = root, .output_buffer = reply, .output_size = sizeof reply,
+    .trigger = on_trigger,                       /* enables *TRG (optional) */
+    /* idn_... */
+};
+```
+
+| Transport event | Call |
+| --- | --- |
+| message bytes arrive | `viper_scpi_input_buffer()` |
+| end of message (USBTMC EOM, VXI-11 END) | `viper_scpi_end_of_message()` |
+| controller requests a reply of up to *n* bytes | `viper_scpi_output_read(ctx, buf, n, &end)`; send `end` as EOM/END |
+| request with nothing queued | push `VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED` (-420), let the controller time out |
+| abort of a reply (USBTMC ABORT_BULK_IN) | `viper_scpi_output_discard()` |
+| device clear (viClear, USBTMC INITIATE_CLEAR, VXI-11 device_clear) | `viper_scpi_device_clear()` |
+| main loop | `if (viper_scpi_take_service_request(ctx))` raise SRQ |
+| serial poll / READ_STATUS_BYTE | `viper_scpi_status_byte()` (bit 6 is MSS; keep RQS in the transport) |
+
+What changes in this mode:
+
+- The status byte carries **MAV** (bit 4) while a reply is queued.
+- A new program message arriving over an unread (or partly read) reply
+  discards it and queues **-410** Query INTERRUPTED (488.2 6.3.2.3). An empty
+  line is not a message.
+- A reply that does not fit `output_size` is dropped whole with **-321** Out of
+  memory, rather than handed out truncated.
+- `viper_scpi_result_block_fill(ctx, len, fill, user)` adds a definite-length
+  block whose bytes `fill` produces while the transport reads them, so a
+  reply can be megabytes long from a small buffer. One such block per reply
+  (a second gives -400); text before and after it is kept in order. In the
+  stream model the same call generates and writes the block in 64-byte chunks.
+- `viper_scpi_take_service_request()` reports each false-to-true transition
+  of (STB & SRE) once. Transitions are tracked as they happen, so
+  `*CLS;*SRE 32;*OPC` on one line is a new request even though the condition
+  holds before and after the line -- sampling the status byte between
+  messages would miss it.
+
+`viper_scpi_device_clear()` drops a partly received message, the
+compound-header path and the queued reply; the status registers and the error
+queue are kept, as 488.2 requires of DCL/SDC.
 
 ## Command tree registration
 
@@ -252,6 +311,9 @@ The same checks can be run locally; see the commands in the workflow file.
 - Unit conversion is multiplicative only (no offsets such as degF).
 - Floating point I/O uses `strtod`/`snprintf` from the C library.
 - Commands execute synchronously, so `*WAI` and `*OPC` complete immediately.
+- In the message-exchange model a reply holds at most one generated block,
+  and lines separated by `\n` inside one transport message are separate
+  program messages (so a query on the first line is interrupted by the second).
 
 ## License
 

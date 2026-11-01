@@ -29,8 +29,12 @@ typedef enum {
     VIPER_SCPI_RES_ERR_PARAM_INVALID = -220,    /**< Parameter error */
     VIPER_SCPI_RES_ERR_OUT_OF_RANGE = -222,     /**< Data out of range */
     VIPER_SCPI_RES_ERR_ILLEGAL_VALUE = -224,    /**< Illegal parameter value */
+    VIPER_SCPI_RES_ERR_OUT_OF_MEMORY = -321,    /**< Out of memory (output queue full) */
     VIPER_SCPI_RES_ERR_QUEUE_OVERFLOW = -350,   /**< Queue overflow */
-    VIPER_SCPI_RES_ERR_INPUT_OVERRUN = -363     /**< Input buffer overrun */
+    VIPER_SCPI_RES_ERR_INPUT_OVERRUN = -363,    /**< Input buffer overrun */
+    VIPER_SCPI_RES_ERR_QUERY = -400,            /**< Query error */
+    VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED = -410,/**< New message over an unread reply */
+    VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED = -420/**< Read requested, nothing to send */
 } viper_scpi_result_t;
 
 /** Event Status Register bits (IEEE 488.2). */
@@ -106,20 +110,43 @@ typedef struct {
 /** Output function: send @p len bytes to the transport. */
 typedef size_t (*viper_scpi_write_t)(void *user_data, const char *data, size_t len);
 
-/** Optional *RST hook. */
+/** Optional *RST / *TRG hook. */
 typedef void (*viper_scpi_reset_t)(viper_scpi_context_t *ctx);
+typedef void (*viper_scpi_trigger_t)(viper_scpi_context_t *ctx);
 
-/** Static configuration; must outlive the context. All fields optional
- *  except that a NULL @c write discards responses. */
+/**
+ * Producer for viper_scpi_result_block_fill(): write @p count bytes of the
+ * block, starting @p offset bytes into it, to @p dst.
+ */
+typedef void (*viper_scpi_block_fill_t)(void *fill_user, uint8_t *dst,
+                                        uint32_t offset, size_t count);
+
+/**
+ * Static configuration; must outlive the context. All fields optional
+ * except that, without an output buffer, a NULL @c write discards responses.
+ *
+ * Two output models:
+ *  - Stream (UART, raw TCP): leave @c output_buffer NULL. Responses go to
+ *    @c write as they are produced.
+ *  - Message exchange (USBTMC, VXI-11, HiSLIP, GPIB device): set
+ *    @c output_buffer. Responses are queued and the transport pulls them with
+ *    viper_scpi_output_read() when the controller asks. The status byte then
+ *    carries MAV, and a new program message arriving over an unread reply
+ *    discards it with -410 (IEEE 488.2 6.3.2.3). @c write is not used.
+ */
 typedef struct {
     const viper_scpi_node_t *root; /**< User command tree (may be NULL) */
-    viper_scpi_write_t write;      /**< Response output */
+    viper_scpi_write_t write;      /**< Response output (stream model) */
     void *user_data;               /**< Passed to write and available to callbacks */
     viper_scpi_reset_t reset;      /**< Called by *RST */
     const char *idn_manufacturer;  /**< *IDN? field 1 */
     const char *idn_model;         /**< *IDN? field 2 */
     const char *idn_serial;        /**< *IDN? field 3 */
     const char *idn_firmware;      /**< *IDN? field 4 */
+    char *output_buffer;           /**< Response queue (message-exchange model) */
+    size_t output_size;            /**< Its size; one response message must fit,
+                                        except data from result_block_fill() */
+    viper_scpi_trigger_t trigger;  /**< *TRG; without it *TRG is -113 */
 } viper_scpi_config_t;
 
 /** Parameter token: points into the line buffer, not NUL terminated. */
@@ -142,6 +169,20 @@ struct viper_scpi_context_s {
     size_t param_count;
     int16_t err_queue[VIPER_SCPI_ERROR_QUEUE_SIZE];
     int32_t suffix[VIPER_SCPI_MAX_SUFFIXES]; /**< -1 = suffix omitted */
+    /* Output queue (message-exchange model): text with at most one generated
+     * block spliced in at out_block_at; read order is
+     * text[0, block_at), block, text[block_at, out_len). */
+    size_t out_len;
+    size_t out_rd;
+    size_t out_block_at;
+    uint32_t out_block_total;
+    uint32_t out_block_done;
+    viper_scpi_block_fill_t out_fill;
+    void *out_fill_user;
+    uint8_t out_block_active;
+    uint8_t out_overflow;
+    uint8_t srq_prev;      /**< Service-request summary at the last check */
+    uint8_t srq_new;       /**< Rising edge not yet taken */
     uint32_t block_remaining;
     uint8_t suffix_count;
     uint8_t prefix_count;

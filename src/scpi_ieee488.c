@@ -27,6 +27,16 @@ static viper_scpi_result_t cmd_rst(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
+/* *TRG exists only if the instrument can be triggered (488.2 DT1). */
+static viper_scpi_result_t cmd_trg(viper_scpi_context_t *ctx)
+{
+    if (ctx->cfg->trigger == NULL) {
+        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
+    }
+    ctx->cfg->trigger(ctx);
+    return VIPER_SCPI_RES_OK;
+}
+
 static viper_scpi_result_t cmd_cls(viper_scpi_context_t *ctx)
 {
     viper_scpi_error_clear(ctx);
@@ -122,6 +132,7 @@ static const struct {
     { "ESE", cmd_ese, KIND_BOTH, true },
     { "SRE", cmd_sre, KIND_BOTH, true },
     { "TST", cmd_tst, KIND_QUERY, false },
+    { "TRG", cmd_trg, KIND_COMMAND, false },
 };
 
 viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,

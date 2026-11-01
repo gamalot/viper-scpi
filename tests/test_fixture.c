@@ -403,8 +403,13 @@ static void on_reset(viper_scpi_context_t *ctx)
 }
 
 static const viper_scpi_config_t config = {
-    root, capture_write, NULL, on_reset,
-    "Acme", "Widget", "SN123", "1.2.3"
+    .root = root,
+    .write = capture_write,
+    .reset = on_reset,
+    .idn_manufacturer = "Acme",
+    .idn_model = "Widget",
+    .idn_serial = "SN123",
+    .idn_firmware = "1.2.3",
 };
 
 void fx_setup(void)
@@ -425,6 +430,10 @@ void fx_setup(void)
     memset(g_block, 0, sizeof g_block);
     fx_clear();
     (void)viper_scpi_init(&g_ctx, &config);
+    /* Consume the power-on event the way a controller's first *ESR? would,
+     * so suites start from an all-clear ESR (test_ieee488 checks PON). */
+    fx_send("*ESR?");
+    fx_clear();
 }
 
 void fx_send(const char *line)

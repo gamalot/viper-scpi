@@ -94,8 +94,13 @@ static size_t uart_write(void *user_data, const char *data, size_t len)
 }
 
 static const viper_scpi_config_t config = {
-    root_nodes, uart_write, NULL, reset,
-    "Viper", "Demo PSU", "0001", "0.1.0"
+    .root = root_nodes,
+    .write = uart_write,
+    .reset = reset,
+    .idn_manufacturer = "Viper",
+    .idn_model = "Demo PSU",
+    .idn_serial = "0001",
+    .idn_firmware = "0.1.0",
 };
 
 static viper_scpi_context_t scpi; /* static: no heap, no stack pressure */
