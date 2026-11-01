@@ -454,6 +454,14 @@ Override any of these with `-D` on the compiler command line (see
 | `VIPER_SCPI_DOUBLE_DIGITS` | 15 | Significant digits of double responses |
 | `VIPER_SCPI_MAX_SUFFIXES` | 4 | Numeric suffixes recorded per header |
 
+## Versions
+
+`viper_scpi.h` defines `VIPER_SCPI_VERSION_MAJOR`, `_MINOR`, `_PATCH` and
+`VIPER_SCPI_VERSION_STRING`; CMake refuses to configure if they disagree with
+`project(VERSION)`. Releases are tagged `vX.Y.Z` -- pin a tag rather than a
+commit when vendoring -- and [CHANGELOG.md](CHANGELOG.md) lists each release's
+changes, with breaking ones marked.
+
 ## Build and test
 
 ```sh

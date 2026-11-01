@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
-project(viper_scpi VERSION 0.1.0 LANGUAGES C)
+project(viper_scpi VERSION 0.2.0 LANGUAGES C)
+
+# Keep the header's version macros in step with the project version.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/viper_scpi/viper_scpi.h" _viper_ver
+     REGEX "^#define VIPER_SCPI_VERSION_STRING ")
+string(REGEX REPLACE ".*\"([^\"]+)\".*" "\\1" _viper_ver "${_viper_ver}")
+if(NOT _viper_ver STREQUAL PROJECT_VERSION)
+    message(FATAL_ERROR "viper_scpi.h says ${_viper_ver}, CMakeLists.txt says ${PROJECT_VERSION}")
+endif()
 
 option(VIPER_SCPI_BUILD_TESTS "Build the unit tests" ON)
 option(VIPER_SCPI_BUILD_EXAMPLES "Build the examples" ON)

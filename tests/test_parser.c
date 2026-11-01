@@ -8,6 +8,12 @@ static void test_init_validation(void)
     CHECK_INT(viper_scpi_init(NULL, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
     CHECK_INT(viper_scpi_init(&c, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
     CHECK(sizeof(viper_scpi_context_t) < 2048); /* static footprint budget */
+    {
+        char v[16];
+        (void)snprintf(v, sizeof v, "%d.%d.%d", VIPER_SCPI_VERSION_MAJOR,
+                       VIPER_SCPI_VERSION_MINOR, VIPER_SCPI_VERSION_PATCH);
+        CHECK_STR(v, VIPER_SCPI_VERSION_STRING);
+    }
 }
 
 static void test_long_and_short_forms(void)
