@@ -93,6 +93,37 @@ static void test_unsigned(void)
     CHECK_INT(err(), -104);
 }
 
+static void test_integer_boundaries(void)
+{
+    int32_t i = 0;
+    uint32_t u = 0;
+
+    fx_setup();
+    fx_send("PARAMS 4294967295,#HFFFFFFFF,#Q37777777777,"
+            "#B11111111111111111111111111111111,-0x80000000");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 0, &u), 0);
+    CHECK(u == 4294967295u);
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 1, &u), 0);
+    CHECK(u == 4294967295u);
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 2, &u), 0);
+    CHECK(u == 4294967295u);
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 3, &u), 0);
+    CHECK(u == 4294967295u);
+    CHECK_INT(viper_scpi_param_int32(&g_ctx, 4, &i), 0);
+    CHECK_INT(i, -2147483647L - 1);
+    CHECK_INT(viper_scpi_param_int32(&g_ctx, 0, &i), VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+    fx_send("PARAMS 4294967296,#Q40000000000,#B111111111111111111111111111111111");
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 0, &u), VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 1, &u), VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 2, &u), VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+
+    /* Garbage after an overflowing number is still a data type error. */
+    fx_send("PARAMS 99999999999x,99999999999999999999999x");
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 0, &u), VIPER_SCPI_RES_ERR_DATA_TYPE);
+    CHECK_INT(viper_scpi_param_uint32(&g_ctx, 1, &u), VIPER_SCPI_RES_ERR_DATA_TYPE);
+}
+
 static void test_floats(void)
 {
     fx_setup();
@@ -477,6 +508,7 @@ int main(void)
     test_integers();
     test_integer_errors();
     test_unsigned();
+    test_integer_boundaries();
     test_floats();
     test_float_errors();
     test_double_results();

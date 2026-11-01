@@ -46,4 +46,8 @@ if arm-none-eabi-nm "$OUT/int_only.elf" | grep -E ' [Tt] _?(_?s?v?f?printf|_svfp
     echo "FAIL: integer-only program links printf/strtod" >&2
     exit 1
 fi
-echo "OK: no printf/strtod in an integer-only program"
+if arm-none-eabi-nm "$OUT/int_only.elf" | grep -E ' [Tt] (__aeabi_uldivmod|__aeabi_ldivmod|__udivmoddi4|__aeabi_lmul)$'; then
+    echo "FAIL: integer-only program links 64-bit arithmetic helpers" >&2
+    exit 1
+fi
+echo "OK: no printf/strtod or 64-bit helpers in an integer-only program"

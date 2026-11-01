@@ -189,11 +189,14 @@ static int digit_value(char c)
     return -1;
 }
 
-/* Parses sign and magnitude; the magnitude saturates only via OUT_OF_RANGE. */
-static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uint64_t *mag)
+/* Parses sign and magnitude; a magnitude above UINT32_MAX is OUT_OF_RANGE.
+ * 32-bit arithmetic only, so Cortex-M0 needs no 64-bit runtime helpers. */
+static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uint32_t *mag)
 {
-    unsigned base = 10;
-    uint64_t acc = 0;
+    uint32_t base = 10;
+    uint32_t acc = 0;
+    uint32_t limit;
+    uint32_t limit_digit;
     size_t i = 0;
 
     *neg = false;
@@ -221,15 +224,26 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uin
     if (i >= n) {
         return VIPER_SCPI_RES_ERR_DATA_TYPE;
     }
+    /* acc * base + d overflows exactly when acc > limit, or acc == limit and
+     * d > limit_digit. */
+    limit = UINT32_MAX / base;
+    limit_digit = UINT32_MAX % base;
     for (; i < n; i++) {
         int d = digit_value(s[i]);
-        if (d < 0 || (unsigned)d >= base) {
+        if (d < 0 || (uint32_t)d >= base) {
             return VIPER_SCPI_RES_ERR_DATA_TYPE;
         }
-        if (acc > (UINT64_MAX - (uint64_t)d) / base) {
+        if (acc > limit || (acc == limit && (uint32_t)d > limit_digit)) {
+            /* Keep validating: a later non-digit is a data type error. */
+            for (i++; i < n; i++) {
+                d = digit_value(s[i]);
+                if (d < 0 || (uint32_t)d >= base) {
+                    return VIPER_SCPI_RES_ERR_DATA_TYPE;
+                }
+            }
             return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
         }
-        acc = acc * base + (uint64_t)d;
+        acc = acc * base + (uint32_t)d;
     }
     *mag = acc;
     return VIPER_SCPI_RES_OK;
@@ -241,7 +255,7 @@ viper_scpi_result_t viper_scpi_param_int32(const viper_scpi_context_t *ctx, size
     const char *s;
     size_t n;
     bool neg;
-    uint64_t mag;
+    uint32_t mag;
     viper_scpi_result_t res;
 
     if (out == NULL) {
@@ -254,10 +268,16 @@ viper_scpi_result_t viper_scpi_param_int32(const viper_scpi_context_t *ctx, size
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
-    if (neg ? mag > (uint64_t)INT32_MAX + 1u : mag > (uint64_t)INT32_MAX) {
+    if (neg ? mag > (uint32_t)INT32_MAX + 1u : mag > (uint32_t)INT32_MAX) {
         return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
-    *out = neg ? (int32_t)(-(int64_t)mag) : (int32_t)mag;
+    if (!neg) {
+        *out = (int32_t)mag;
+    } else if (mag == (uint32_t)INT32_MAX + 1u) {
+        *out = INT32_MIN;
+    } else {
+        *out = -(int32_t)mag;
+    }
     return VIPER_SCPI_RES_OK;
 }
 
@@ -267,7 +287,7 @@ viper_scpi_result_t viper_scpi_param_uint32(const viper_scpi_context_t *ctx, siz
     const char *s;
     size_t n;
     bool neg;
-    uint64_t mag;
+    uint32_t mag;
     viper_scpi_result_t res;
 
     if (out == NULL) {
@@ -280,7 +300,7 @@ viper_scpi_result_t viper_scpi_param_uint32(const viper_scpi_context_t *ctx, siz
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
-    if ((neg && mag != 0) || mag > UINT32_MAX) {
+    if (neg && mag != 0) {
         return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
     *out = (uint32_t)mag;
