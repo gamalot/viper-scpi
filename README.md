@@ -315,6 +315,9 @@ The same checks can be run locally; see the commands in the workflow file.
   and lines separated by `\n` inside one transport message are separate
   program messages (so a query on the first line is interrupted by the second).
 
+Planned work, with priorities and acceptance criteria, is in
+[docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
+
 ## License
 
 See `LICENSE`.
