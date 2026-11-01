@@ -48,7 +48,7 @@ static void emit(viper_scpi_context_t *ctx, const char *s, size_t n)
 
 bool viper_scpi_output_pending(const viper_scpi_context_t *ctx)
 {
-    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE || ctx->msg_started) {
         return false; /* the response message is not complete yet */
     }
     return ctx->out_rd < ctx->out_len ||
@@ -60,7 +60,7 @@ size_t viper_scpi_output_read(viper_scpi_context_t *ctx, uint8_t *dst, size_t ma
     const char *buf = ctx->cfg->output_buffer;
     size_t n = 0;
 
-    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE || ctx->msg_started) {
         *end = false; /* nothing readable until the message finishes */
         return 0;
     }
@@ -492,7 +492,10 @@ static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
     return NULL;
 }
 
-static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *h, size_t hlen)
+/* Resolves a tree header to its node, recording the path for relative
+ * headers, without running the callback. */
+static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char *h, size_t hlen,
+                                          const viper_scpi_node_t **out)
 {
     segment_t segs[VIPER_SCPI_MAX_RECURSION_DEPTH];
     size_t nseg = 0;
@@ -556,7 +559,16 @@ static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *
         ctx->prefix[i] = segs[i];
     }
     ctx->prefix_count = (uint8_t)(nseg - 1);
-    return node->callback(ctx);
+    *out = node;
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *h, size_t hlen)
+{
+    const viper_scpi_node_t *node = NULL;
+    viper_scpi_result_t res = resolve_header(ctx, h, hlen, &node);
+
+    return (res == VIPER_SCPI_RES_OK) ? node->callback(ctx) : res;
 }
 
 static viper_scpi_result_t dispatch(viper_scpi_context_t *ctx, const char *h, size_t hlen)
@@ -604,7 +616,13 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
     viper_scpi_srq_update(ctx);
 }
 
-enum { BLK_NONE, BLK_HASH, BLK_LENGTH, BLK_DATA, BLK_INDEFINITE };
+enum {
+    BLK_NONE, BLK_HASH, BLK_LENGTH, BLK_DATA, BLK_INDEFINITE,
+    BLK_STREAM,       /* block bytes go to ctx->stream */
+    BLK_SKIP,         /* block bytes are dropped (handler failed) */
+    BLK_TAIL,         /* after a streamed block, until the unit ends */
+    BLK_TAIL_DISCARD  /* rest of a unit that had a parameter after the block */
+};
 
 static void input_reset(viper_scpi_context_t *ctx)
 {
@@ -613,6 +631,46 @@ static void input_reset(viper_scpi_context_t *ctx)
     ctx->block_state = BLK_NONE;
     ctx->quote = 0;
     ctx->last = 0;
+    ctx->unit_start = 0;
+}
+
+static bool streaming(const viper_scpi_context_t *ctx)
+{
+    return ctx->block_state >= BLK_STREAM;
+}
+
+/* Tells the handler a streamed block was cut short. */
+static void stream_abort(viper_scpi_context_t *ctx)
+{
+    if (ctx->block_state == BLK_STREAM || ctx->block_state == BLK_TAIL) {
+        (void)ctx->stream(ctx, VIPER_SCPI_STREAM_ABORT, NULL, 0);
+    }
+}
+
+/* Calls the handler; a failure is queued and stops further calls. */
+static bool stream_call(viper_scpi_context_t *ctx, viper_scpi_stream_event_t ev,
+                        const uint8_t *data, size_t len)
+{
+    viper_scpi_result_t res = ctx->stream(ctx, ev, data, len);
+
+    if (res != VIPER_SCPI_RES_OK) {
+        viper_scpi_error_push(ctx, (int)res);
+        return false;
+    }
+    return true;
+}
+
+/* The streamed unit ended (';' or message end): END, then the line buffer
+ * starts afresh for the units that follow. The path is not inherited. */
+static void stream_finish_unit(viper_scpi_context_t *ctx)
+{
+    if (ctx->block_state == BLK_TAIL) {
+        ctx->unit_has_output = 0;
+        (void)stream_call(ctx, VIPER_SCPI_STREAM_END, NULL, 0);
+    }
+    input_reset(ctx);
+    ctx->prefix_count = 0;
+    viper_scpi_srq_update(ctx);
 }
 
 /*
@@ -670,17 +728,35 @@ static void run_line(viper_scpi_context_t *ctx)
     viper_scpi_srq_update(ctx); /* MAV rose */
 }
 
-static void execute_line(viper_scpi_context_t *ctx)
+/* A program message starts executing: response separators, path and
+ * overflow state start afresh. */
+static void message_begin(viper_scpi_context_t *ctx)
 {
     ctx->prefix_count = 0;
     ctx->line_has_output = 0;
     ctx->out_overflow = 0;
+}
+
+static void execute_line(viper_scpi_context_t *ctx)
+{
+    if (!ctx->msg_started) {
+        message_begin(ctx);
+    }
+    ctx->msg_started = 0;
     ctx->exec_pos = 0;
     run_line(ctx);
 }
 
 static void finish_line(viper_scpi_context_t *ctx)
 {
+    if (streaming(ctx)) {
+        if (ctx->block_state == BLK_STREAM || ctx->block_state == BLK_SKIP) {
+            stream_abort(ctx); /* EOM before the declared length */
+            viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INVALID_BLOCK);
+        }
+        stream_finish_unit(ctx);
+        /* The message ends here; finish its response. */
+    }
     if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
         /* Input was refused while suspended (viper_scpi_busy()). */
         if (ctx->input_dropped) {
@@ -689,11 +765,11 @@ static void finish_line(viper_scpi_context_t *ctx)
         }
         return;
     }
-    if (ctx->length == 0 && !ctx->overflow) {
+    if (ctx->length == 0 && !ctx->overflow && !ctx->msg_started) {
         input_reset(ctx);
         return; /* an empty line is not a program message */
     }
-    if (queued(ctx) && viper_scpi_output_pending(ctx)) {
+    if (!ctx->msg_started && queued(ctx) && viper_scpi_output_pending(ctx)) {
         /* IEEE 488.2 6.3.2.3: a new message over an unread reply ends it. */
         output_reset(ctx);
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
@@ -702,8 +778,10 @@ static void finish_line(viper_scpi_context_t *ctx)
         /* The message ended inside a definite-length block: the controller
          * did not send what it declared, so the command must not run. */
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INVALID_BLOCK);
+        ctx->msg_started = 0;
     } else if (ctx->overflow) {
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
+        ctx->msg_started = 0;
     } else {
         execute_line(ctx); /* resets the input unless it suspends */
         return;
@@ -746,6 +824,8 @@ void viper_scpi_input_discard(viper_scpi_context_t *ctx)
         ctx->input_dropped = 0;
         return;
     }
+    stream_abort(ctx);
+    ctx->msg_started = 0;
     input_reset(ctx);
 }
 
@@ -760,6 +840,117 @@ void viper_scpi_device_clear(viper_scpi_context_t *ctx)
     viper_scpi_input_discard(ctx);
     ctx->prefix_count = 0;
     viper_scpi_output_discard(ctx);
+}
+
+static const viper_scpi_stream_node_t *find_stream_node(const viper_scpi_context_t *ctx,
+                                                       const viper_scpi_node_t *node)
+{
+    for (const viper_scpi_stream_node_t *s = ctx->cfg->stream_nodes; s != NULL && s->node != NULL;
+         s++) {
+        if (s->node == node && s->handler != NULL) {
+            return s;
+        }
+    }
+    return NULL;
+}
+
+/*
+ * The length of a definite block has just been read. If the block belongs to
+ * the first command of the message and that command's node opted in to
+ * streaming, resolve the command now -- before its data arrives -- and hand
+ * the data to the handler instead of the line buffer.
+ */
+static bool stream_start(viper_scpi_context_t *ctx)
+{
+    const viper_scpi_stream_node_t *sn;
+    const viper_scpi_node_t *node = NULL;
+    const char *s = ctx->buffer;
+    size_t n = ctx->hash_pos;
+    size_t hlen = 0;
+
+    if (ctx->cfg->stream_nodes == NULL || ctx->unit_start != 0 || ctx->overflow ||
+        ctx->msg_started) {
+        return false;
+    }
+    while (n > 0 && viper_scpi_is_space(*s)) {
+        s++;
+        n--;
+    }
+    while (hlen < n && !viper_scpi_is_space(s[hlen])) {
+        hlen++;
+    }
+    if (hlen == 0 || s[0] == '*') {
+        return false;
+    }
+    {
+        /* Parameters before the block: drop the ',' that precedes it. */
+        size_t pn = n;
+        while (pn > hlen && viper_scpi_is_space(s[pn - 1])) {
+            pn--;
+        }
+        if (pn > hlen && s[pn - 1] == ',') {
+            pn--;
+        }
+        ctx->param_count = 0;
+        ctx->is_query = 0;
+        ctx->prefix_count = 0; /* first command of a message: no inherited path */
+        if (split_params(ctx, s + hlen, pn - hlen) != VIPER_SCPI_RES_OK) {
+            return false;
+        }
+    }
+    sn = (resolve_header(ctx, s, hlen, &node) == VIPER_SCPI_RES_OK)
+             ? find_stream_node(ctx, node) : NULL;
+    if (sn == NULL) {
+        ctx->prefix_count = 0;
+        return false;
+    }
+
+    /* The message starts executing now. */
+    if (queued(ctx) && viper_scpi_output_pending(ctx)) {
+        output_reset(ctx);
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
+    }
+    message_begin(ctx);
+    ctx->msg_started = 1;
+    ctx->unit_has_output = 0;
+    ctx->stream = sn->handler;
+    ctx->block_state = BLK_STREAM;
+    if (!stream_call(ctx, VIPER_SCPI_STREAM_BEGIN, NULL, ctx->block_remaining)) {
+        ctx->block_state = BLK_SKIP;
+    }
+    if (ctx->block_remaining == 0) {
+        ctx->block_state = (ctx->block_state == BLK_SKIP) ? BLK_TAIL_DISCARD : BLK_TAIL;
+    }
+    return true;
+}
+
+/* Block bytes of a streamed (or skipped) block. */
+static void stream_data(viper_scpi_context_t *ctx, const char *p, size_t k)
+{
+    if (ctx->block_state == BLK_STREAM &&
+        !stream_call(ctx, VIPER_SCPI_STREAM_DATA, (const uint8_t *)p, k)) {
+        ctx->block_state = BLK_SKIP;
+    }
+    ctx->block_remaining -= (uint32_t)k;
+    if (ctx->block_remaining == 0) {
+        /* A failed block still has to have its unit consumed. */
+        ctx->block_state = (ctx->block_state == BLK_SKIP) ? BLK_TAIL_DISCARD : BLK_TAIL;
+    }
+}
+
+/* Characters after a streamed block, up to the end of its unit. */
+static void stream_tail(viper_scpi_context_t *ctx, char c)
+{
+    if (c == '\n') {
+        finish_line(ctx);
+    } else if (c == ';') {
+        stream_finish_unit(ctx);
+    } else if (ctx->block_state == BLK_TAIL && !viper_scpi_is_space(c) && c != '\r') {
+        /* Another parameter after the block: not allowed. */
+        stream_abort(ctx);
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED);
+        ctx->block_state = BLK_TAIL_DISCARD;
+    }
 }
 
 /*
@@ -778,6 +969,14 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         return;
     }
     switch (ctx->block_state) {
+    case BLK_STREAM:
+    case BLK_SKIP:
+        stream_data(ctx, &c, 1);
+        return;
+    case BLK_TAIL:
+    case BLK_TAIL_DISCARD:
+        stream_tail(ctx, c);
+        return;
     case BLK_DATA:
         store(ctx, c);
         if (--ctx->block_remaining == 0) {
@@ -810,7 +1009,7 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         if (c >= '0' && c <= '9') {
             ctx->block_remaining = ctx->block_remaining * 10u + (uint32_t)(c - '0');
             store(ctx, c);
-            if (--ctx->block_digits == 0) {
+            if (--ctx->block_digits == 0 && !stream_start(ctx)) {
                 ctx->block_state = (ctx->block_remaining > 0) ? BLK_DATA : BLK_NONE;
             }
             return;
@@ -847,15 +1046,29 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         ctx->quote = c;
     } else if (c == '#' && (ctx->last == ' ' || ctx->last == '\t' || ctx->last == ',')) {
         ctx->block_state = BLK_HASH;
+        ctx->hash_pos = ctx->length;
     }
     store(ctx, c);
     ctx->last = c;
+    if (c == ';' && ctx->quote == 0 && !ctx->overflow) {
+        ctx->unit_start = ctx->length;
+    }
 }
 
 void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t len)
 {
-    for (size_t i = 0; i < len; i++) {
-        viper_scpi_input_char(ctx, data[i]);
+    for (size_t i = 0; i < len;) {
+        if (ctx->block_state == BLK_STREAM || ctx->block_state == BLK_SKIP) {
+            /* Hand streamed block data over in as large a piece as arrived. */
+            size_t k = len - i;
+            if (k > ctx->block_remaining) {
+                k = ctx->block_remaining;
+            }
+            stream_data(ctx, data + i, k);
+            i += k;
+        } else {
+            viper_scpi_input_char(ctx, data[i++]);
+        }
     }
 }
 

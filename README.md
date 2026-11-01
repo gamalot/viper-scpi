@@ -311,6 +311,57 @@ is followed by a digit opens a block. Consequences:
   item; a `\r` before the final `\n` is treated as data.
 - `#B`, `#Q` and `#H` numbers are not blocks.
 
+### Streaming block input (uploads larger than RAM)
+
+A node can receive its definite-length block in chunks instead of through the
+line buffer, for `MMEM:DATA`, `TRAC:DATA`, firmware images and the like. List
+it in the configuration's `stream_nodes` table, by node address:
+
+```c
+static const viper_scpi_node_t mmem_nodes[] = {
+    { "DATA", cmd_mmem_data, NULL },      /* still used for queries, #0 blocks */
+    VIPER_SCPI_NODE_END
+};
+static const viper_scpi_stream_node_t streams[] = {
+    { &mmem_nodes[0], mmem_data_stream },
+    { NULL, NULL }
+};
+/* config: .stream_nodes = streams */
+
+static viper_scpi_result_t mmem_data_stream(viper_scpi_context_t *ctx,
+                                            viper_scpi_stream_event_t ev,
+                                            const uint8_t *data, size_t len)
+{
+    switch (ev) {
+    case VIPER_SCPI_STREAM_BEGIN: /* len = declared size; params before the block readable */
+    case VIPER_SCPI_STREAM_DATA:  /* len bytes at data, as they arrive */
+    case VIPER_SCPI_STREAM_END:   /* all bytes received, command complete */
+    case VIPER_SCPI_STREAM_ABORT: /* cut short: discard what was written */
+    }
+    return VIPER_SCPI_RES_OK;
+}
+```
+
+When the length of a block has been read, the library resolves the command
+right away, before any data arrives, and passes the data on as it comes
+(`viper_scpi_input_buffer()` hands over whole runs, so chunks are as large as
+the transport's packets). The rules:
+
+- Only a definite-length block of the **first command of a program message**
+  streams; parameters before it (`MMEM:DATA 'file.bin',#9...`) are readable at
+  BEGIN. Elsewhere, indefinite blocks and nodes not in the table use the line
+  buffer as before (a block that does not fit is still `-363`).
+- Commands after the streamed one in the same message run normally; they do
+  not inherit its path (`MMEM:DATA ...;DATA ...` is `-113` for the second).
+- End of message before the declared length: ABORT, then `-161`.
+  `viper_scpi_device_clear()` and `viper_scpi_input_discard()` mid-block:
+  ABORT, no error.
+- A parameter after the block: ABORT, `-108`, and the rest of that command is
+  skipped; later commands still run.
+- A non-zero return from BEGIN or DATA is queued and the rest of the block is
+  skipped without further calls. END may write responses; in the
+  message-exchange model they are readable once the whole message is done.
+
 ## Callbacks
 
 A callback runs when its node is the last mnemonic of a command. Inside it:

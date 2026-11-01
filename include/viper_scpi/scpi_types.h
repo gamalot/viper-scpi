@@ -126,6 +126,33 @@ typedef void (*viper_scpi_trigger_t)(viper_scpi_context_t *ctx);
 typedef void (*viper_scpi_block_fill_t)(void *fill_user, uint8_t *dst,
                                         uint32_t offset, size_t count);
 
+/** Events delivered to a streaming block handler. */
+typedef enum {
+    VIPER_SCPI_STREAM_BEGIN, /**< Block starts; len = declared length. The
+                                  parameters before the block are readable. */
+    VIPER_SCPI_STREAM_DATA,  /**< len bytes of the block at data */
+    VIPER_SCPI_STREAM_END,   /**< Block and command complete; results allowed */
+    VIPER_SCPI_STREAM_ABORT  /**< Cut short (EOM, device clear, input discard,
+                                  or a parameter after the block) */
+} viper_scpi_stream_event_t;
+
+/**
+ * Receives a definite-length block in chunks, for blocks larger than the line
+ * buffer (MMEM:DATA, TRAC:DATA). A non-zero return from BEGIN, DATA or END is
+ * pushed to the error queue; after one from BEGIN or DATA the rest of the
+ * block is skipped and the handler is not called again for it. ABORT's return
+ * value is ignored.
+ */
+typedef viper_scpi_result_t (*viper_scpi_block_stream_t)(viper_scpi_context_t *ctx,
+                                                         viper_scpi_stream_event_t event,
+                                                         const uint8_t *data, size_t len);
+
+/** Opt-in of a tree node to streaming block input; lists end with a NULL node. */
+typedef struct {
+    const viper_scpi_node_t *node;       /**< Address of the node in the tree */
+    viper_scpi_block_stream_t handler;
+} viper_scpi_stream_node_t;
+
 /**
  * Static configuration; must outlive the context. All fields optional
  * except that, without an output buffer, a NULL @c write discards responses.
@@ -152,6 +179,7 @@ typedef struct {
     size_t output_size;            /**< Its size; one response message must fit,
                                         except data from result_block_fill() */
     viper_scpi_trigger_t trigger;  /**< *TRG; without it *TRG is -113 */
+    const viper_scpi_stream_node_t *stream_nodes; /**< Streaming block input */
 } viper_scpi_config_t;
 
 /** SCPI status register sets, for viper_scpi_status_condition(). */
@@ -212,6 +240,11 @@ struct viper_scpi_context_s {
     uint8_t opc_armed;     /**< *OPC given while operations were pending */
     uint8_t input_dropped; /**< Bytes arrived while suspended */
     viper_scpi_status_set_t status[2]; /**< OPERation, QUEStionable */
+    /* Streaming block input */
+    viper_scpi_block_stream_t stream;  /**< Handler of the block being streamed */
+    size_t unit_start;     /**< Buffer offset where the current unit starts */
+    size_t hash_pos;       /**< Buffer offset of the '#' of the current block */
+    uint8_t msg_started;   /**< Part of this message has already executed */
     uint32_t block_remaining;
     uint8_t suffix_count;
     uint8_t prefix_count;
