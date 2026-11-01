@@ -239,6 +239,9 @@ is followed by a digit opens a block. Consequences:
 - A definite block consumes exactly its declared number of bytes; an incorrect
   (too large) length swallows following bytes until `viper_scpi_end_of_message()`
   is called.
+- If the message ends (`viper_scpi_end_of_message()`) before a definite block
+  is complete -- inside its length digits or its data -- the whole message is
+  dropped with **-161** Invalid block data; no command of it runs.
 - An indefinite block (`#0`) runs to the end of the line and must be the last
   item; a `\r` before the final `\n` is treated as data.
 - `#B`, `#Q` and `#H` numbers are not blocks.

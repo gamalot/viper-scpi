@@ -14,6 +14,8 @@ static const struct {
     { VIPER_SCPI_RES_ERR_MNEMONIC_TOO_LONG, "Program mnemonic too long" },
     { VIPER_SCPI_RES_ERR_UNDEFINED_HEADER, "Undefined header" },
     { VIPER_SCPI_RES_ERR_INVALID_SUFFIX, "Invalid suffix" },
+    { VIPER_SCPI_RES_ERR_BLOCK_DATA, "Block data error" },
+    { VIPER_SCPI_RES_ERR_INVALID_BLOCK, "Invalid block data" },
     { VIPER_SCPI_RES_ERR_EXECUTION, "Execution error" },
     { VIPER_SCPI_RES_ERR_PARAM_INVALID, "Parameter error" },
     { VIPER_SCPI_RES_ERR_OUT_OF_RANGE, "Data out of range" },

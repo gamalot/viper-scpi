@@ -667,7 +667,11 @@ static void finish_line(viper_scpi_context_t *ctx)
         output_reset(ctx);
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
     }
-    if (ctx->overflow) {
+    if (ctx->block_state == BLK_LENGTH || ctx->block_state == BLK_DATA) {
+        /* The message ended inside a definite-length block: the controller
+         * did not send what it declared, so the command must not run. */
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INVALID_BLOCK);
+    } else if (ctx->overflow) {
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
     } else {
         execute_line(ctx);

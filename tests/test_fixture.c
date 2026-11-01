@@ -16,6 +16,7 @@ double g_limit;
 int32_t g_pcount;
 uint8_t g_block[32];
 size_t g_block_len;
+int g_block_calls;
 double g_num;
 double g_vlim;
 
@@ -206,6 +207,7 @@ static viper_scpi_result_t cb_block(viper_scpi_context_t *ctx)
     size_t len;
     viper_scpi_result_t res;
 
+    g_block_calls++;
     if (viper_scpi_is_query(ctx)) {
         viper_scpi_result_block(ctx, g_block, g_block_len);
         return VIPER_SCPI_RES_OK;
@@ -427,6 +429,7 @@ void fx_setup(void)
     g_vlim = 1.0;
     g_pcount = 0;
     g_block_len = 0;
+    g_block_calls = 0;
     memset(g_block, 0, sizeof g_block);
     fx_clear();
     (void)viper_scpi_init(&g_ctx, &config);

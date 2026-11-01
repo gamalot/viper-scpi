@@ -385,6 +385,24 @@ static void test_generated_block_stream_model(void)
     CHECK(!viper_scpi_output_pending(&g_ctx));     /* nothing queued */
 }
 
+static void test_truncated_block_at_eom(void)
+{
+    char buf[64];
+    int reads;
+
+    q_setup();
+    q_send("*IDN?");
+    viper_scpi_input_buffer(&q, "DATA #15ab", 10);   /* EOM 3 bytes short */
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(viper_scpi_error_pop(&q), -410);       /* it was still a message */
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK(!viper_scpi_output_pending(&q));           /* nothing ran */
+    q_send("*OPC?");                                 /* next message unaffected */
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "1\n");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
 int main(void)
 {
     test_queued_reply();
@@ -400,5 +418,6 @@ int main(void)
     test_service_request_edges();
     test_trigger_hook();
     test_generated_block_stream_model();
+    test_truncated_block_at_eom();
     return test_summary("test_message");
 }

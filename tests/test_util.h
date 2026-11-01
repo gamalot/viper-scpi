@@ -71,6 +71,7 @@ extern double g_limit;
 extern int32_t g_pcount;
 extern uint8_t g_block[32];
 extern size_t g_block_len;
+extern int g_block_calls;  /* times the BLOCk callback ran */
 extern double g_num;    /* last value set by the unit commands */
 extern double g_vlim;
 

@@ -360,7 +360,8 @@ static void test_block_errors(void)
     /* Incomplete definite block, ended by EOM. */
     viper_scpi_input_buffer(&g_ctx, "BLOCK #15hel", 12);
     viper_scpi_end_of_message(&g_ctx);
-    CHECK_INT(err(), -104);
+    CHECK_INT(err(), -161);               /* dropped, command never ran */
+    CHECK_INT(g_block_calls, 0);
     fx_send("COUNT 1;COUNT?");            /* parser state fully recovered */
     CHECK_STR(fx_out(), "1\n");
     fx_clear();
@@ -371,9 +372,26 @@ static void test_block_errors(void)
     CHECK_INT(err(), -104);
     fx_send("BLOCK #2");
     CHECK_INT(err(), -104);
+    g_block_calls = 0;
     viper_scpi_input_buffer(&g_ctx, "BLOCK #233abcde", 15);   /* declares 33, has 5 */
     viper_scpi_end_of_message(&g_ctx);
-    CHECK_INT(err(), -104);
+    CHECK_INT(err(), -161);
+    viper_scpi_input_buffer(&g_ctx, "BLOCK #2", 8);   /* EOM inside the length */
+    viper_scpi_end_of_message(&g_ctx);
+    CHECK_INT(err(), -161);
+    viper_scpi_input_buffer(&g_ctx, "BLOCK #13ab", 11);
+    viper_scpi_end_of_message(&g_ctx);
+    CHECK_INT(err(), -161);
+    CHECK_INT(g_block_calls, 0);
+    viper_scpi_input_buffer(&g_ctx, "BLOCK #13abc", 12);  /* complete: unaffected */
+    viper_scpi_end_of_message(&g_ctx);
+    CHECK_INT(g_block_calls, 1);
+    CHECK_INT(g_block_len, 3);
+    viper_scpi_input_buffer(&g_ctx, "COUNT 9;BLOCK #15ab", 19); /* whole message dropped */
+    viper_scpi_end_of_message(&g_ctx);
+    CHECK_INT(err(), -161);
+    CHECK_INT(g_count, 1);
+    CHECK_INT(g_block_calls, 1);
     {
         char msg[64] = "BLOCK #233";
         memset(msg + 10, 'z', 33);
