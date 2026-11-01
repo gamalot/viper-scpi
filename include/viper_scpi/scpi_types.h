@@ -24,6 +24,7 @@ typedef enum {
     VIPER_SCPI_RES_ERR_MISSING_PARAM = -109,    /**< Missing parameter */
     VIPER_SCPI_RES_ERR_MNEMONIC_TOO_LONG = -112,/**< Program mnemonic too long */
     VIPER_SCPI_RES_ERR_UNDEFINED_HEADER = -113, /**< Undefined header */
+    VIPER_SCPI_RES_ERR_SUFFIX_RANGE = -114,     /**< Header suffix out of range */
     VIPER_SCPI_RES_ERR_INVALID_SUFFIX = -131,   /**< Invalid suffix (unit) */
     VIPER_SCPI_RES_ERR_BLOCK_DATA = -160,       /**< Block data error */
     VIPER_SCPI_RES_ERR_INVALID_BLOCK = -161,    /**< Invalid block data (e.g. cut short) */

@@ -57,6 +57,7 @@ static void test_messages(void)
     CHECK_STR(viper_scpi_error_message(0), "No error");
     CHECK_STR(viper_scpi_error_message(-113), "Undefined header");
     CHECK_STR(viper_scpi_error_message(-350), "Queue overflow");
+    CHECK_STR(viper_scpi_error_message(-114), "Header suffix out of range");
     CHECK_STR(viper_scpi_error_message(-999), "Device-specific error");
 }
 

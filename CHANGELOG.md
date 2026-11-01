@@ -4,6 +4,13 @@ All notable changes to viper-scpi. Versions follow [Semantic Versioning](https:/
 while the major version is 0, a minor release may contain breaking changes,
 and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
+## [Unreleased]
+
+### Added
+- `VIPER_SCPI_RES_ERR_SUFFIX_RANGE` (-114, "Header suffix out of range") for
+  callbacks that reject a numeric suffix.
+- Documentation guides in `docs/`.
+
 ## [0.2.0] - 2026-11-01
 
 ### Added
