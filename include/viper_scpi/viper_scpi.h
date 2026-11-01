@@ -81,7 +81,8 @@ viper_scpi_result_t viper_scpi_param_int32(const viper_scpi_context_t *ctx, size
 viper_scpi_result_t viper_scpi_param_uint32(const viper_scpi_context_t *ctx, size_t idx,
                                             uint32_t *out);
 
-/** Floating point with optional exponent, e.g. -1.23E-3. */
+/** Floating point with optional exponent, e.g. -1.23E-3, or INFinity,
+ *  NINFinity (negative infinity) or NAN. */
 viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, size_t idx,
                                             double *out);
 
@@ -99,6 +100,21 @@ viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, s
                                               int32_t *out);
 
 /**
+ * viper_scpi_param_double_kw() that also accepts UP and DOWN and reports in
+ * @p kw which keyword was given (VIPER_SCPI_KW_NONE for a number). For UP and
+ * DOWN @p out is left unchanged: the instrument steps its own value. In all
+ * the range-checked parsers INF/NINF must lie within [min, max] and NAN is
+ * ILLEGAL_VALUE (-224).
+ */
+viper_scpi_result_t viper_scpi_param_double_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
+                                                  double min, double max, double def,
+                                                  double *out, viper_scpi_numeric_kw_t *kw);
+/** Integer flavour of viper_scpi_param_double_kw_ex(). */
+viper_scpi_result_t viper_scpi_param_int32_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
+                                                 int32_t min, int32_t max, int32_t def,
+                                                 int32_t *out, viper_scpi_numeric_kw_t *kw);
+
+/**
  * Number with an optional SCPI unit suffix, converted to the base unit.
  * Accepts "1.5KHZ", "100 mV", "2.5E3HZ", "5MA" and a bare number (no unit).
  * Multipliers: EX PE T G MA K M U N P F A (MA = mega, M = milli, except where
@@ -114,6 +130,12 @@ viper_scpi_result_t viper_scpi_param_double_unit_kw(const viper_scpi_context_t *
                                                     const viper_scpi_unit_t *units,
                                                     double min, double max, double def,
                                                     double *out);
+/** viper_scpi_param_double_unit_kw() with UP/DOWN, like
+ *  viper_scpi_param_double_kw_ex(). */
+viper_scpi_result_t viper_scpi_param_double_unit_kw_ex(const viper_scpi_context_t *ctx,
+                                                       size_t idx, const viper_scpi_unit_t *units,
+                                                       double min, double max, double def,
+                                                       double *out, viper_scpi_numeric_kw_t *kw);
 
 /** Ready-made unit tables. */
 extern const viper_scpi_unit_t viper_scpi_units_volt[];    /* V */

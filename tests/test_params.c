@@ -128,9 +128,9 @@ static void test_float_errors(void)
     CHECK_INT(err(), -104);
     fx_send("SOUR:VOLT 1.2.3");
     CHECK_INT(err(), -104);
-    fx_send("SOUR:VOLT nan");
-    CHECK_INT(err(), -104);
-    fx_send("SOUR:VOLT inf");
+    fx_send("SOUR:VOLT nanx");          /* INF/NINF/NAN are keywords (see */
+    CHECK_INT(err(), -104);             /* test_special_values); near   */
+    fx_send("SOUR:VOLT infinit");       /* misses are not               */
     CHECK_INT(err(), -104);
     fx_send("SOUR:VOLT 0x10");
     CHECK_INT(err(), -104);
@@ -211,6 +211,104 @@ static void test_nr3_format(void)
     fx_setup();
     fx_send("SOUR:VOLT 1.23456789012;VOLT?");
     CHECK_STR(fx_out(), "1.23456789012\n");
+}
+
+static void test_special_values(void)
+{
+    double d = 0;
+    int32_t i = 0;
+    viper_scpi_numeric_kw_t kw = VIPER_SCPI_KW_MIN;
+
+    fx_setup();
+    fx_send("PARAMS INF,infinity,NINF,NINFINITY,NAN,nan");
+    CHECK_INT(viper_scpi_param_double(&g_ctx, 0, &d), 0);
+    CHECK(d > 1.7976931348623157e308);
+    CHECK_INT(viper_scpi_param_double(&g_ctx, 1, &d), 0);
+    CHECK(d > 1.7976931348623157e308);
+    CHECK_INT(viper_scpi_param_double(&g_ctx, 2, &d), 0);
+    CHECK(d < -1.7976931348623157e308);
+    CHECK_INT(viper_scpi_param_double(&g_ctx, 3, &d), 0);
+    CHECK(d < -1.7976931348623157e308);
+    CHECK_INT(viper_scpi_param_double(&g_ctx, 4, &d), 0);
+    CHECK(d != d);
+    CHECK_INT(viper_scpi_param_double(&g_ctx, 5, &d), 0);
+    CHECK(d != d);
+    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 0, viper_scpi_units_volt, &d), 0);
+    CHECK(d > 1.7976931348623157e308);
+    CHECK_INT(viper_scpi_param_int32(&g_ctx, 0, &i), VIPER_SCPI_RES_ERR_DATA_TYPE);
+
+    /* Range-checked parsers: INF must fit [min, max]; NAN never does. */
+    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 0, 0.0, 10.0, 1.0, &d),
+              VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 2, -10.0, 10.0, 1.0, &d),
+              VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 4, -10.0, 10.0, 1.0, &d),
+              VIPER_SCPI_RES_ERR_ILLEGAL_VALUE);
+    CHECK_INT(viper_scpi_param_double_unit_kw(&g_ctx, 0, viper_scpi_units_volt, 0.0, 10.0,
+                                              1.0, &d), VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 0, 0.0, 1.0 / 0.0, 1.0, &d), 0);
+    CHECK(d > 1.7976931348623157e308);         /* allowed when max is INF */
+    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 0, 0.0, 10.0, 1.0, NULL),
+              VIPER_SCPI_RES_ERR_PARAM_INVALID);
+
+    /* Via a command: the response encodes INF as 9.9E+37. */
+    fx_clear();
+    fx_send("SOUR:VOLT INF;VOLT?");
+    CHECK_STR(fx_out(), "9.9E+37\n");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+
+    /* UP / DOWN only through the _ex parsers, which report the keyword. */
+    fx_setup();
+    fx_send("PARAMS UP,down,MIN,MAXIMUM,def,4.5,UPX");
+    d = 7.0;
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 0, 0.0, 10.0, 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_UP);
+    CHECK(d == 7.0);                           /* untouched: instrument steps */
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 1, 0.0, 10.0, 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_DOWN);
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 2, 0.0, 10.0, 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_MIN);
+    CHECK(d == 0.0);
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 3, 0.0, 10.0, 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_MAX);
+    CHECK(d == 10.0);
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 4, 0.0, 10.0, 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_DEF);
+    CHECK(d == 1.0);
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 5, 0.0, 10.0, 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_NONE);
+    CHECK(d == 4.5);
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 6, 0.0, 10.0, 1.0, &d, &kw),
+              VIPER_SCPI_RES_ERR_DATA_TYPE);
+    CHECK_INT(viper_scpi_param_double_kw_ex(&g_ctx, 0, 0.0, 10.0, 1.0, &d, NULL),
+              VIPER_SCPI_RES_ERR_PARAM_INVALID);
+    /* The plain _kw parsers keep rejecting UP/DOWN. */
+    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 0, 0.0, 10.0, 1.0, &d),
+              VIPER_SCPI_RES_ERR_DATA_TYPE);
+    CHECK_INT(viper_scpi_param_int32_kw(&g_ctx, 1, 0, 10, 1, &i), VIPER_SCPI_RES_ERR_DATA_TYPE);
+
+    i = 3;
+    CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 0, 0, 10, 1, &i, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_UP);
+    CHECK_INT(i, 3);
+    CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 3, 0, 10, 1, &i, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_MAX);
+    CHECK_INT(i, 10);
+    CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 5, 0, 10, 1, &i, &kw),
+              VIPER_SCPI_RES_ERR_DATA_TYPE);       /* 4.5 is not an integer */
+    CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 0, 0, 10, 1, &i, NULL),
+              VIPER_SCPI_RES_ERR_PARAM_INVALID);
+
+    CHECK_INT(viper_scpi_param_double_unit_kw_ex(&g_ctx, 1, viper_scpi_units_volt, 0.0, 10.0,
+                                                 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_DOWN);
+    CHECK_INT(viper_scpi_param_double_unit_kw_ex(&g_ctx, 1, NULL, 0.0, 10.0, 1.0, &d, &kw),
+              VIPER_SCPI_RES_ERR_PARAM_INVALID);
+    fx_send("PARAMS 500MV");
+    CHECK_INT(viper_scpi_param_double_unit_kw_ex(&g_ctx, 0, viper_scpi_units_volt, 0.0, 10.0,
+                                                 1.0, &d, &kw), 0);
+    CHECK_INT(kw, VIPER_SCPI_KW_NONE);
+    CHECK(d == 0.5);
 }
 
 static void test_booleans(void)
@@ -362,6 +460,7 @@ int main(void)
     test_float_errors();
     test_double_results();
     test_nr3_format();
+    test_special_values();
     test_booleans();
     test_choices();
     test_strings();

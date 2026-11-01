@@ -1,4 +1,5 @@
 /* Parameter extraction helpers and keyword matching. */
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -330,6 +331,25 @@ static bool valid_float(const char *s, size_t n)
     return i == n;
 }
 
+/* INFinity, NINFinity and NAN (SCPI-99 7.2.1.5). */
+static bool special_double(const char *s, size_t n, double *v)
+{
+    if (viper_scpi_pattern_match("INFinity", s, n)) {
+        *v = HUGE_VAL;
+    } else if (viper_scpi_pattern_match("NINFinity", s, n)) {
+        *v = -HUGE_VAL;
+    } else if (viper_scpi_pattern_match("NAN", s, n)) {
+#ifdef NAN
+        *v = NAN;
+#else
+        *v = HUGE_VAL - HUGE_VAL;
+#endif
+    } else {
+        return false;
+    }
+    return true;
+}
+
 viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, size_t idx,
                                             double *out)
 {
@@ -345,6 +365,9 @@ viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, siz
     res = viper_scpi_param_raw(ctx, idx, &s, &n);
     if (res != VIPER_SCPI_RES_OK) {
         return res;
+    }
+    if (special_double(s, n, out)) {
+        return VIPER_SCPI_RES_OK;
     }
     if (n >= sizeof tmp || !valid_float(s, n)) {
         return VIPER_SCPI_RES_ERR_DATA_TYPE;
@@ -448,62 +471,104 @@ viper_scpi_result_t viper_scpi_param_string(const viper_scpi_context_t *ctx, siz
     return VIPER_SCPI_RES_OK;
 }
 
-/* ---- MIN / MAX / DEF keywords ---------------------------------------------------------- */
+/* ---- MIN / MAX / DEF / UP / DOWN keywords ---------------------------------------------- */
 
-typedef enum { KW_NONE, KW_MIN, KW_MAX, KW_DEF } keyword_t;
-
-static keyword_t numeric_keyword(const viper_scpi_context_t *ctx, size_t idx)
+static viper_scpi_numeric_kw_t numeric_keyword(const viper_scpi_context_t *ctx, size_t idx)
 {
+    static const struct {
+        const char *name;
+        viper_scpi_numeric_kw_t kw;
+    } keywords[] = {
+        { "MINimum", VIPER_SCPI_KW_MIN }, { "MAXimum", VIPER_SCPI_KW_MAX },
+        { "DEFault", VIPER_SCPI_KW_DEF }, { "UP", VIPER_SCPI_KW_UP },
+        { "DOWN", VIPER_SCPI_KW_DOWN },
+    };
     const char *s;
     size_t n;
 
-    if (viper_scpi_param_raw(ctx, idx, &s, &n) != VIPER_SCPI_RES_OK) {
-        return KW_NONE;
+    if (viper_scpi_param_raw(ctx, idx, &s, &n) == VIPER_SCPI_RES_OK) {
+        for (size_t i = 0; i < sizeof keywords / sizeof keywords[0]; i++) {
+            if (viper_scpi_pattern_match(keywords[i].name, s, n)) {
+                return keywords[i].kw;
+            }
+        }
     }
-    if (viper_scpi_pattern_match("MINimum", s, n)) {
-        return KW_MIN;
+    return VIPER_SCPI_KW_NONE;
+}
+
+/*
+ * Shared body of the range-checked double parsers. @p units NULL means no unit
+ * suffix; @p kw_out NULL means UP/DOWN are not accepted (they then fail as
+ * an ordinary non-number).
+ */
+static viper_scpi_result_t double_kw(const viper_scpi_context_t *ctx, size_t idx,
+                                     const viper_scpi_unit_t *units, double min, double max,
+                                     double def, double *out, viper_scpi_numeric_kw_t *kw_out)
+{
+    viper_scpi_numeric_kw_t kw;
+    double v;
+    viper_scpi_result_t res;
+
+    if (out == NULL || !(min <= max)) {
+        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
     }
-    if (viper_scpi_pattern_match("MAXimum", s, n)) {
-        return KW_MAX;
+    kw = numeric_keyword(ctx, idx);
+    if ((kw == VIPER_SCPI_KW_UP || kw == VIPER_SCPI_KW_DOWN) && kw_out == NULL) {
+        kw = VIPER_SCPI_KW_NONE;
     }
-    if (viper_scpi_pattern_match("DEFault", s, n)) {
-        return KW_DEF;
+    if (kw != VIPER_SCPI_KW_NONE) {
+        if (kw == VIPER_SCPI_KW_MIN) {
+            *out = min;
+        } else if (kw == VIPER_SCPI_KW_MAX) {
+            *out = max;
+        } else if (kw == VIPER_SCPI_KW_DEF) {
+            *out = def;
+        }
+        if (kw_out != NULL) {
+            *kw_out = kw;
+        }
+        return VIPER_SCPI_RES_OK;
     }
-    return KW_NONE;
+    res = (units != NULL) ? viper_scpi_param_double_unit(ctx, idx, units, &v)
+                          : viper_scpi_param_double(ctx, idx, &v);
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    if (v != v) {
+        return VIPER_SCPI_RES_ERR_ILLEGAL_VALUE; /* NAN is never in a range */
+    }
+    if (v < min || v > max) {
+        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+    }
+    *out = v;
+    if (kw_out != NULL) {
+        *kw_out = VIPER_SCPI_KW_NONE;
+    }
+    return VIPER_SCPI_RES_OK;
 }
 
 viper_scpi_result_t viper_scpi_param_double_kw(const viper_scpi_context_t *ctx, size_t idx,
                                                double min, double max, double def,
                                                double *out)
 {
-    keyword_t kw;
-    double v;
-    viper_scpi_result_t res;
-
-    if (out == NULL || min > max) {
-        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
-    }
-    kw = numeric_keyword(ctx, idx);
-    if (kw != KW_NONE) {
-        *out = kw == KW_MIN ? min : (kw == KW_MAX ? max : def);
-        return VIPER_SCPI_RES_OK;
-    }
-    res = viper_scpi_param_double(ctx, idx, &v);
-    if (res != VIPER_SCPI_RES_OK) {
-        return res;
-    }
-    if (v < min || v > max) {
-        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
-    }
-    *out = v;
-    return VIPER_SCPI_RES_OK;
+    return double_kw(ctx, idx, NULL, min, max, def, out, NULL);
 }
 
-viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, size_t idx,
-                                              int32_t min, int32_t max, int32_t def,
-                                              int32_t *out)
+viper_scpi_result_t viper_scpi_param_double_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
+                                                  double min, double max, double def,
+                                                  double *out, viper_scpi_numeric_kw_t *kw)
 {
-    keyword_t kw;
+    if (kw == NULL) {
+        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
+    }
+    return double_kw(ctx, idx, NULL, min, max, def, out, kw);
+}
+
+static viper_scpi_result_t int32_kw(const viper_scpi_context_t *ctx, size_t idx, int32_t min,
+                                    int32_t max, int32_t def, int32_t *out,
+                                    viper_scpi_numeric_kw_t *kw_out)
+{
+    viper_scpi_numeric_kw_t kw;
     int32_t v;
     viper_scpi_result_t res;
 
@@ -511,8 +576,20 @@ viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, s
         return VIPER_SCPI_RES_ERR_PARAM_INVALID;
     }
     kw = numeric_keyword(ctx, idx);
-    if (kw != KW_NONE) {
-        *out = kw == KW_MIN ? min : (kw == KW_MAX ? max : def);
+    if ((kw == VIPER_SCPI_KW_UP || kw == VIPER_SCPI_KW_DOWN) && kw_out == NULL) {
+        kw = VIPER_SCPI_KW_NONE;
+    }
+    if (kw != VIPER_SCPI_KW_NONE) {
+        if (kw == VIPER_SCPI_KW_MIN) {
+            *out = min;
+        } else if (kw == VIPER_SCPI_KW_MAX) {
+            *out = max;
+        } else if (kw == VIPER_SCPI_KW_DEF) {
+            *out = def;
+        }
+        if (kw_out != NULL) {
+            *kw_out = kw;
+        }
         return VIPER_SCPI_RES_OK;
     }
     res = viper_scpi_param_int32(ctx, idx, &v);
@@ -523,7 +600,27 @@ viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, s
         return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
     *out = v;
+    if (kw_out != NULL) {
+        *kw_out = VIPER_SCPI_KW_NONE;
+    }
     return VIPER_SCPI_RES_OK;
+}
+
+viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, size_t idx,
+                                              int32_t min, int32_t max, int32_t def,
+                                              int32_t *out)
+{
+    return int32_kw(ctx, idx, min, max, def, out, NULL);
+}
+
+viper_scpi_result_t viper_scpi_param_int32_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
+                                                 int32_t min, int32_t max, int32_t def,
+                                                 int32_t *out, viper_scpi_numeric_kw_t *kw)
+{
+    if (kw == NULL) {
+        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
+    }
+    return int32_kw(ctx, idx, min, max, def, out, kw);
 }
 
 /* ---- Block data ---------------------------------------------------------------------------- */
@@ -689,6 +786,9 @@ viper_scpi_result_t viper_scpi_param_double_unit(const viper_scpi_context_t *ctx
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
+    if (special_double(s, n, out)) {
+        return VIPER_SCPI_RES_OK;
+    }
     num = scan_number(s, n);
     if (num == 0 || num >= sizeof tmp) {
         return VIPER_SCPI_RES_ERR_DATA_TYPE;
@@ -724,25 +824,19 @@ viper_scpi_result_t viper_scpi_param_double_unit_kw(const viper_scpi_context_t *
                                                     double min, double max, double def,
                                                     double *out)
 {
-    keyword_t kw;
-    double v;
-    viper_scpi_result_t res;
-
-    if (out == NULL || min > max) {
+    if (units == NULL) {
         return VIPER_SCPI_RES_ERR_PARAM_INVALID;
     }
-    kw = numeric_keyword(ctx, idx);
-    if (kw != KW_NONE) {
-        *out = kw == KW_MIN ? min : (kw == KW_MAX ? max : def);
-        return VIPER_SCPI_RES_OK;
+    return double_kw(ctx, idx, units, min, max, def, out, NULL);
+}
+
+viper_scpi_result_t viper_scpi_param_double_unit_kw_ex(const viper_scpi_context_t *ctx,
+                                                       size_t idx, const viper_scpi_unit_t *units,
+                                                       double min, double max, double def,
+                                                       double *out, viper_scpi_numeric_kw_t *kw)
+{
+    if (units == NULL || kw == NULL) {
+        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
     }
-    res = viper_scpi_param_double_unit(ctx, idx, units, &v);
-    if (res != VIPER_SCPI_RES_OK) {
-        return res;
-    }
-    if (v < min || v > max) {
-        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
-    }
-    *out = v;
-    return VIPER_SCPI_RES_OK;
+    return double_kw(ctx, idx, units, min, max, def, out, kw);
 }

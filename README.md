@@ -286,6 +286,23 @@ limits; numbers must be inside `[min, max]` or `-222` is returned. Queries such
 as `VOLT? MAX` can use the same call. `viper_scpi_param_int32_kw()` does the
 same for integers.
 
+All double parsers also accept `INFinity`, `NINFinity` (negative infinity) and
+`NAN`. In the range-checked ones an infinity must lie within `[min, max]` (so
+it fails a finite range with `-222`) and `NAN` is always `-224`.
+
+`UP` and `DOWN` are for instruments that step a setting. The `_kw_ex`
+variants accept them and report which keyword was given:
+
+```c
+viper_scpi_numeric_kw_t kw;
+res = viper_scpi_param_double_kw_ex(ctx, 0, 0.0, 30.0, 5.0, &volts, &kw);
+if (res == VIPER_SCPI_RES_OK && kw == VIPER_SCPI_KW_UP)   volts += step;   /* then range-check */
+if (res == VIPER_SCPI_RES_OK && kw == VIPER_SCPI_KW_DOWN) volts -= step;
+```
+
+`out` is left unchanged for `UP`/`DOWN`. There are `_ex` variants of the
+int32 and unit parsers too. The plain `_kw` parsers still reject `UP`/`DOWN`.
+
 ## Block data
 
 ```c
@@ -455,7 +472,6 @@ The same checks can be run locally; see the commands in the workflow file.
 ## Limitations
 
 - Optional brackets in patterns do not nest (`[:A[:B]]`).
-- `UP`/`DOWN` and `INFinity`/`NAN` numeric keywords are not implemented.
 - Unit conversion is multiplicative only (no offsets such as degF).
 - Floating point I/O uses `strtod`/`snprintf` from the C library.
 - In the message-exchange model a reply holds at most one generated block,

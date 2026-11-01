@@ -106,6 +106,16 @@ typedef struct {
     uint8_t flags;     /**< VIPER_SCPI_UNIT_* */
 } viper_scpi_unit_t;
 
+/** Numeric keyword reported by the viper_scpi_param_*_kw_ex() parsers. */
+typedef enum {
+    VIPER_SCPI_KW_NONE = 0, /**< A number was given */
+    VIPER_SCPI_KW_MIN,      /**< MINimum */
+    VIPER_SCPI_KW_MAX,      /**< MAXimum */
+    VIPER_SCPI_KW_DEF,      /**< DEFault */
+    VIPER_SCPI_KW_UP,       /**< UP: step the current value up */
+    VIPER_SCPI_KW_DOWN      /**< DOWN: step the current value down */
+} viper_scpi_numeric_kw_t;
+
 /** Keyword/value pair for viper_scpi_param_choice(); lists end with NULL name. */
 typedef struct {
     const char *name;
