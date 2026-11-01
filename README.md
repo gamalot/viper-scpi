@@ -119,6 +119,11 @@ What changes in this mode:
 - A new program message arriving over an unread (or partly read) reply
   discards it and queues **-410** Query INTERRUPTED (488.2 6.3.2.3). An empty
   line is not a message.
+- A newline (or carriage return) inside an open string quote is string data,
+  since the message end is signalled by EOM/END and IEEE 488.2 7.7.5 allows
+  any 7-bit ASCII character in string data: `STR "a<LF>b"` sets `a<LF>b`.
+  In the stream model LF always ends the message, even inside quotes, so one
+  lost quote cannot swallow every message after it.
 - A reply that does not fit `output_size` is dropped whole with **-321** Out of
   memory, rather than handed out truncated.
 - `viper_scpi_result_block_fill(ctx, len, fill, user)` adds a definite-length

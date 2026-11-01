@@ -768,6 +768,17 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         break;
     }
 
+    /* In the message-exchange model the message end is signalled out of band
+     * (EOM / END), so a newline or carriage return inside an open quote is
+     * string data (IEEE 488.2 7.7.5: any 7-bit ASCII character may appear
+     * between the delimiters). On stream transports LF stays the only
+     * terminator, even inside quotes, so one lost quote cannot swallow every
+     * following message. */
+    if (ctx->quote != 0 && queued(ctx) && (c == '\n' || c == '\r')) {
+        store(ctx, c);
+        ctx->last = c;
+        return;
+    }
     if (c == '\n') {
         finish_line(ctx);
         return;

@@ -43,6 +43,17 @@ static viper_scpi_result_t cb_big(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
+static char s_str[32];
+
+static viper_scpi_result_t cb_str(viper_scpi_context_t *ctx)
+{
+    if (viper_scpi_is_query(ctx)) {
+        viper_scpi_result_string(ctx, s_str);
+        return VIPER_SCPI_RES_OK;
+    }
+    return viper_scpi_param_string(ctx, 0, s_str, sizeof s_str, NULL);
+}
+
 static void on_trigger(viper_scpi_context_t *ctx)
 {
     (void)ctx;
@@ -53,6 +64,7 @@ static const viper_scpi_node_t q_root[] = {
     { "DATA", cb_data, NULL },
     { "TWO", cb_two, NULL },
     { "BIG", cb_big, NULL },
+    { "STR", cb_str, NULL },
     VIPER_SCPI_NODE_END
 };
 
@@ -487,6 +499,40 @@ static void test_serial_poll_rqs(void)
     CHECK_INT(viper_scpi_serial_poll(&q), 0);
 }
 
+static void test_newline_inside_string(void)
+{
+    char buf[64];
+    int reads;
+
+    /* Message-exchange model: LF and CR inside quotes are string data. */
+    q_setup();
+    q_send("STR \"a\nb\r\nc\"");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_STR(s_str, "a\nb\r\nc");
+    q_send("STR 'x\ny';STR?");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "\"x\ny\"\n");
+
+    /* Outside quotes LF still ends a program message. */
+    q_send("STR \"one\"\nSTR?");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "\"one\"\n");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+
+    /* An unterminated quote runs to EOM and is one syntax error. */
+    q_send("STR \"abc\n*RST");
+    CHECK_INT(viper_scpi_error_pop(&q), -102);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_STR(s_str, "one");                 /* not executed */
+
+    /* Stream model (fixture): LF stays a terminator even inside quotes. */
+    fx_setup();
+    fx_send("NAME \"a\nb\"");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -102);
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -102);
+    CHECK_STR(g_name, "");
+}
+
 int main(void)
 {
     test_queued_reply();
@@ -505,5 +551,6 @@ int main(void)
     test_truncated_block_at_eom();
     test_input_discard_keeps_reply();
     test_serial_poll_rqs();
+    test_newline_inside_string();
     return test_summary("test_message");
 }
