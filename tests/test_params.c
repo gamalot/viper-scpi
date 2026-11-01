@@ -207,6 +207,27 @@ static void test_nr3_format(void)
     CHECK_STR(fmt(1.0 / 0.0, 3), "9.9E+37");
     CHECK_STR(fmt(-1.0 / 0.0, 0), "-9.9E+37");
 
+    /* Integer responses (formatted without printf). */
+    fx_setup();
+    viper_scpi_result_int(&g_ctx, 0);
+    viper_scpi_result_int(&g_ctx, -1);
+    viper_scpi_result_int(&g_ctx, 2147483647);
+    viper_scpi_result_int(&g_ctx, -2147483647 - 1);
+    viper_scpi_result_uint(&g_ctx, 0);
+    viper_scpi_result_uint(&g_ctx, 4294967295u);
+    viper_scpi_result_uint(&g_ctx, 1000000000u);
+    CHECK_STR(fx_out(), "0,-1,2147483647,-2147483648,0,4294967295,1000000000");
+    fx_setup();
+    viper_scpi_result_block(&g_ctx, "0123456789", 9);
+    viper_scpi_result_block(&g_ctx, "0123456789", 10);
+    CHECK_STR(fx_out(), "#19012345678,#2100123456789");
+    fx_setup();
+    viper_scpi_result_block_fill(&g_ctx, 1000000000u, NULL, NULL);   /* no producer */
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -200);
+    viper_scpi_result_block(&g_ctx, "", (size_t)1000000000u);       /* 10 digits */
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -222);
+    CHECK_STR(fx_out(), "");
+
     /* A value set with 12 digits reads back unchanged. */
     fx_setup();
     fx_send("SOUR:VOLT 1.23456789012;VOLT?");

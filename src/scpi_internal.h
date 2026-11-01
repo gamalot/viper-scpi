@@ -53,6 +53,9 @@ viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
  *  NULL, with embedded quotes doubled. */
 void viper_scpi_result_string_pair(viper_scpi_context_t *ctx, const char *a, const char *b);
 
+/** MIN/MAX/DEF/UP/DOWN keyword of parameter @p idx, or VIPER_SCPI_KW_NONE. */
+viper_scpi_numeric_kw_t viper_scpi_numeric_keyword(const viper_scpi_context_t *ctx, size_t idx);
+
 /** PARAM_NOT_ALLOWED if the command carries parameters, else OK. */
 viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx);
 

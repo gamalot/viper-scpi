@@ -484,7 +484,11 @@ The same checks can be run locally; see the commands in the workflow file.
 
 - Optional brackets in patterns do not nest (`[:A[:B]]`).
 - Unit conversion is multiplicative only (no offsets such as degF).
-- Floating point I/O uses `strtod`/`snprintf` from the C library.
+- Floating-point I/O uses `strtod`/`snprintf` from the C library. They live
+  in `src/scpi_float.c` alone, so firmware that never calls a double API
+  (`viper_scpi_param_double*`, `viper_scpi_result_double*`) links neither:
+  integer responses are formatted without `printf`. The `cortex-m` CI job
+  checks this with an integer-only Cortex-M0+ program (`.github/linktest.sh`).
 - In the message-exchange model a reply holds at most one generated block,
   and lines separated by `\n` inside one transport message are separate
   program messages (so a query on the first line is interrupted by the

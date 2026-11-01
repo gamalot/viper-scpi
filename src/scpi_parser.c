@@ -1,6 +1,4 @@
 /* Core SCPI state machine: line assembly, tokenizing, tree dispatch, output. */
-#include <float.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "scpi_internal.h"
@@ -128,20 +126,39 @@ void viper_scpi_result_text(viper_scpi_context_t *ctx, const char *str)
     emit(ctx, str, strlen(str));
 }
 
+/* Decimal digits of @p v, written backwards from @p end; returns the start.
+ * Done by hand so that integer responses do not pull in printf. */
+static char *format_u32(char *end, uint32_t v)
+{
+    do {
+        *--end = (char)('0' + v % 10u);
+        v /= 10u;
+    } while (v != 0);
+    return end;
+}
+
 void viper_scpi_result_int(viper_scpi_context_t *ctx, int32_t value)
 {
-    char buf[16];
-    int n = snprintf(buf, sizeof buf, "%ld", (long)value);
+    char buf[12];
+    char *end = buf + sizeof buf;
+    /* Magnitude in unsigned arithmetic, so INT32_MIN is handled too. */
+    char *p = format_u32(end, value < 0 ? 0u - (uint32_t)value : (uint32_t)value);
+
+    if (value < 0) {
+        *--p = '-';
+    }
     result_begin(ctx);
-    emit(ctx, buf, (size_t)n);
+    emit(ctx, p, (size_t)(end - p));
 }
 
 void viper_scpi_result_uint(viper_scpi_context_t *ctx, uint32_t value)
 {
-    char buf[16];
-    int n = snprintf(buf, sizeof buf, "%lu", (unsigned long)value);
+    char buf[12];
+    char *end = buf + sizeof buf;
+    char *p = format_u32(end, value);
+
     result_begin(ctx);
-    emit(ctx, buf, (size_t)n);
+    emit(ctx, p, (size_t)(end - p));
 }
 
 void viper_scpi_result_bool(viper_scpi_context_t *ctx, bool value)
@@ -150,59 +167,26 @@ void viper_scpi_result_bool(viper_scpi_context_t *ctx, bool value)
     emit(ctx, value ? "1" : "0", 1);
 }
 
-void viper_scpi_result_double_digits(viper_scpi_context_t *ctx, double value, int digits)
-{
-    char buf[40];
-    const char *s = buf;
-
-    if (digits < 1) {
-        digits = 1;
-    } else if (digits > 17) {
-        digits = 17;
-    }
-    /* SCPI defines 9.9E37 as infinity and 9.91E37 as "not a number". */
-    if (value != value) {
-        s = "9.91E+37";
-    } else if (value > DBL_MAX) {
-        s = "9.9E+37";
-    } else if (value < -DBL_MAX) {
-        s = "-9.9E+37";
-    } else {
-        (void)snprintf(buf, sizeof buf, "%.*g", digits, value);
-        /* IEEE 488.2 8.7.4: the NR3 exponent marker is an upper-case E. */
-        for (char *p = buf; *p != '\0'; p++) {
-            if (*p == 'e') {
-                *p = 'E';
-            }
-        }
-    }
-    result_begin(ctx);
-    emit(ctx, s, strlen(s));
-}
-
-void viper_scpi_result_double(viper_scpi_context_t *ctx, double value)
-{
-    viper_scpi_result_double_digits(ctx, value, VIPER_SCPI_DOUBLE_DIGITS);
-}
-
 /* Writes the separator and "#<n><length>"; false if the length needs more
  * than the nine digits a definite-length header can carry. */
 static bool block_header(viper_scpi_context_t *ctx, size_t len)
 {
-    char hdr[16];
-    unsigned digits = 1;
-    int n;
+    char hdr[12];
+    char *end = hdr + sizeof hdr;
+    char *p;
+    char digits;
 
-    for (size_t t = len; t >= 10; t /= 10) {
-        digits++;
-    }
-    if (digits > 9) {
+    if (len > 999999999u) {
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
         return false;
     }
-    n = snprintf(hdr, sizeof hdr, "#%u%lu", digits, (unsigned long)len);
+    p = format_u32(end, (uint32_t)len);
+    digits = (char)('0' + (end - p)); /* 1..9 */
+    p -= 2;
+    p[0] = '#';
+    p[1] = digits;
     result_begin(ctx);
-    emit(ctx, hdr, (size_t)n);
+    emit(ctx, p, (size_t)(end - p));
     return true;
 }
 

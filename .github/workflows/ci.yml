@@ -128,3 +128,5 @@ jobs:
             # No writable static data allowed in the library.
             arm-none-eabi-size -t build-$cpu/*.o | awk 'END { if ($2 + $3 != 0) { print "unexpected .data/.bss: " $2 + $3; exit 1 } }'
           done
+      - name: Integer-only program links no printf/strtod
+        run: sh .github/linktest.sh build-linktest
