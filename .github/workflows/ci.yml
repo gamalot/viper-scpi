@@ -20,14 +20,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-26.04, macos-latest]
         compiler: [gcc, clang]
         build_type: [Debug, Release]
         exclude:
           - os: macos-latest
             compiler: gcc
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure
         run: >
           cmake -S . -B build
@@ -40,10 +40,14 @@ jobs:
         run: ctest --test-dir build --output-on-failure --parallel
 
   sanitizers:
-    name: ASan + UBSan
-    runs-on: ubuntu-latest
+    name: ASan + UBSan (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure
         run: >
           cmake -S . -B build
@@ -57,10 +61,14 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   strict-c99:
-    name: Strict C99 and footprint
-    runs-on: ubuntu-latest
+    name: Strict C99 and footprint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compile the library with extra warnings
         run: |
           for cc in gcc clang; do
@@ -94,10 +102,14 @@ jobs:
           ./size_check
 
   cmake-integration:
-    name: CMake embedding and install
-    runs-on: ubuntu-latest
+    name: CMake embedding and install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: add_subdirectory() builds only the library
         run: |
           cmake -S tests/cmake/embed -B build-embed
@@ -113,10 +125,14 @@ jobs:
           ./build-consumer/app
 
   static-analysis:
-    name: clang-tidy
-    runs-on: ubuntu-latest
+    name: clang-tidy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install clang-tidy
         run: sudo apt-get update && sudo apt-get install -y clang-tidy
       - name: Run clang-tidy on the library
@@ -127,10 +143,14 @@ jobs:
           -- -std=c99 -Iinclude -Isrc
 
   cortex-m:
-    name: Cross-compile for Cortex-M
-    runs-on: ubuntu-latest
+    name: Cross-compile for Cortex-M (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install ARM toolchain
         run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
       - name: Build the library for Cortex-M4 and Cortex-M0+

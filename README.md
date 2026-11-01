@@ -490,11 +490,15 @@ or install it (`cmake --install build --prefix <dir>`) and use
 
 | Job | What it checks |
 | --- | --- |
-| `build-test` | GCC and Clang, Debug and Release, on Linux (and Clang on macOS), `-Werror`, CTest |
+| `build-test` | GCC and Clang, Debug and Release, on Ubuntu (latest and 26.04) and Clang on macOS, `-Werror`, CTest |
 | `sanitizers` | Full test suite, including the fuzz smoke test, under ASan and UBSan |
 | `strict-c99` | `-std=c99 -pedantic-errors -Wshadow -Wconversion ...`, no `malloc`/`free` references, context size below 2 KB |
 | `static-analysis` | `clang-tidy` (`clang-analyzer-*`, `bugprone-*`) on the library |
-| `cortex-m` | Cross-compiles for Cortex-M4 and M0+ with `arm-none-eabi-gcc`, prints code size, fails if the library has writable static data |
+| `cmake-integration` | `add_subdirectory()` builds only the library; install + `find_package()` |
+| `cortex-m` | Cross-compiles for Cortex-M4 and M0+ with `arm-none-eabi-gcc`, prints code size, fails if the library has writable static data, and links an integer-only program that must not contain printf/strtod or 64-bit helpers |
+
+Every Linux job runs on both `ubuntu-latest` and `ubuntu-26.04`, so the move
+of `ubuntu-latest` to the newer image is already covered.
 
 The same checks can be run locally; see the commands in the workflow file.
 
