@@ -13,6 +13,8 @@ output model added), all CI jobs green (run 41305521159).
 > is recorded in [CHANGELOG.md](../CHANGELOG.md) as release 0.2.0, tagged
 > `v0.2.0` (`v0.1.0` marks `d385786`). Item 1.5 cites IEEE 488.2 7.7.5 without the standard text having been
 > checked first-hand.
+>
+> **Open (2026-11-02):** section 5 lists what was found after 0.2.0.
 
 ## Ground rules
 
@@ -53,8 +55,9 @@ cmake -S . -B build-asan -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug -DVIP
 The first production user is a USBTMC/USB488 instrument on an LP-MSPM0G5187
 (Cortex-M0+, TI Arm Clang 5.1.1, TinyUSB). It uses the message-exchange model
 (`output_buffer`, `viper_scpi_output_read`, `viper_scpi_take_service_request`,
-`viper_scpi_device_clear`) and is verified against a real VISA with a 41-item
-hardware test. That project is not in this repository, so it cannot be run
+`viper_scpi_device_clear`, and since 0.2.0 `viper_scpi_input_discard`,
+`viper_scpi_serial_poll`, `viper_scpi_rqs_delivered`) and is verified against a
+real VISA with a 47-item hardware test. That project is not in this repository, so it cannot be run
 from here; keep the message-exchange semantics in `tests/test_message.c`
 intact and extend that suite rather than rely on hardware.
 
@@ -373,3 +376,59 @@ and that `ubuntu-latest` is moving to Ubuntu 26. Move to the current major of
 from. It is out of date (no message-exchange model, no units, no suffixes) and a
 reader cannot tell which document is authoritative. Move it to
 `docs/history/` with a note at the top, and make the README the reference.
+
+---
+
+## 5. Found after 0.2.0
+
+### 5.1 A message that ends right after a block's `#` still runs the command
+
+**Problem.** Item 1.2 drops a message that ends inside a definite-length block,
+but only once the length digit after `#` has arrived (`BLK_LENGTH`/`BLK_DATA`).
+A message that ends on the `#` itself (`BLK_HASH`) is executed with `#` as the
+parameter. Measured on the MSPM0 USBTMC firmware (v0.2.0, each sent with
+`write_raw`, so EOM follows the last byte; `LED` takes a
+`viper_scpi_param_choice()`):
+
+| sent | errors queued | command ran? |
+| --- | --- | --- |
+| `LED #` | `-224,"Illegal parameter value"` | yes, rejected `#` itself |
+| `LED #1` | `-161,"Invalid block data"` | no |
+| `LED #12` | `-161,"Invalid block data"` | no |
+| `LED #12a` | `-161,"Invalid block data"` | no |
+| `LED #0abc` | `-224,"Illegal parameter value"` | yes, correctly: `#0` is a complete indefinite block |
+
+So the controller sees an error that blames the parameter's value instead of
+the truncated block. A command that accepts raw or string parameters would not
+reject `#` at all and would act on it.
+
+Cause (`src/scpi_parser.c`): in `viper_scpi_input_char()`, `case BLK_HASH`
+treats anything other than `0`..`9` as an ordinary character
+(`block_state = BLK_NONE`), which is right for `#H`/`#Q`/`#B` non-decimal
+numbers but also lets the line terminator through. `finish_line()` then sees
+`BLK_NONE` and executes the line. Reading the code, the same happens on
+stream transports (`LED #<LF>`) and, with `VIPER_SCPI_OPT_EOM_MESSAGES`, at an
+LF separator; only the EOM case was measured.
+
+**Change.**
+- A message ending while `block_state == BLK_HASH` is treated like item 1.2:
+  push **-161**, do not run the line, reset the input. Cover all three ways a
+  message can end: `viper_scpi_end_of_message()`, LF on a stream transport,
+  and (for the unit only) LF under `VIPER_SCPI_OPT_EOM_MESSAGES`.
+- Decide, from IEEE 488.2 §7.7.4 (non-decimal numeric) and §7.7.6 (arbitrary
+  block), what a `#` followed by a unit or parameter terminator (`;`, `,`,
+  whitespace) is. It begins no valid program data element, so it should not
+  reach the callback as text either; pick the error code (-161, -102 or
+  -104), justify it in the commit message, and apply it to these cases too.
+  Leave `#H`, `#Q`, `#B` and every other `#`+letter sequence as they are today:
+  they go to the callback, whose parsers handle or reject them.
+- Streaming nodes (item 2.3) are unaffected: streaming starts only after the
+  length digits are complete.
+
+**Done when** tests in both models show: `CMD #` + end of message → `-161`,
+callback not called, the next message unaffected, a queued reply handled as
+for any other new message (`-410` rules unchanged); the `;`/`,`/whitespace
+decision is tested and documented in the README's error table; `#HFF`,
+`#B101`, `#Q17`, `#0...` and complete definite blocks behave as before; the
+message-exchange fuzz loop (item 4.3) still passes under ASan/UBSan. Record the
+behaviour change in `CHANGELOG.md` under Unreleased as a fix.
