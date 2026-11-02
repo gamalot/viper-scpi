@@ -193,7 +193,7 @@ viper_scpi_result_t viper_scpi_param_raw(const viper_scpi_context_t *ctx, size_t
     if (idx >= ctx->param_count) {
         return VIPER_SCPI_RES_ERR_MISSING_PARAM;
     }
-    *str = ctx->params[idx].str;
+    *str = ctx->buffer + ctx->params[idx].off;
     *len = ctx->params[idx].len;
     return VIPER_SCPI_RES_OK;
 }

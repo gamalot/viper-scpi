@@ -61,8 +61,8 @@ data (CI fails the build if it ever does).
 
 | | Size with default limits |
 | --- | --- |
-| `viper_scpi_context_t` on Cortex-M (32-bit) | 444 bytes |
-| `viper_scpi_context_t` on a 64-bit host | 664 bytes |
+| `viper_scpi_context_t` on Cortex-M (32-bit) | 352 bytes |
+| `viper_scpi_context_t` on a 64-bit host | 424 bytes |
 | output buffer (message-exchange model) | `output_size`, your choice |
 | stack | about 0.55 KB for a typical command, up to about 1.2 KB for a header of 8 mnemonics that fails at the last one, plus your callback's own use (see below) |
 
@@ -76,8 +76,9 @@ without recursion. The C library's `strtod`/`snprintf` add their own stack when
 doubles are used.
 
 The largest contributors are the line buffer (`VIPER_SCPI_BUFFER_SIZE`), the
-parameter and path token arrays (two pointers each per entry) and the error
-queue (a code and a detail pointer per entry).
+parameter and path token arrays (4 bytes per entry: a 16-bit offset into the
+line buffer and a length, which is why the buffer is limited to 65535 bytes)
+and the error queue (a code and a detail pointer per entry).
 
 ## Code size
 

@@ -251,27 +251,64 @@ typedef struct {
     uint16_t ntr;       /**< Negative (1 -> 0) transition filter */
 } viper_scpi_status_set_t;
 
-/** Parameter token: points into the line buffer, not NUL terminated. */
+/** A token of the line buffer: offset and length (not NUL terminated). */
 typedef struct {
-    const char *str;
-    size_t len;
+    uint16_t off;
+    uint16_t len;
 } viper_scpi_token_t;
+
+/** Entries of the relative-path base: the path minus its last mnemonic. */
+#define VIPER_SCPI_PREFIX_SIZE \
+    (VIPER_SCPI_MAX_RECURSION_DEPTH > 1 ? VIPER_SCPI_MAX_RECURSION_DEPTH - 1 : 1)
 
 /**
  * Parser context. Allocate it statically; treat all fields as private and
- * use the accessor functions in viper_scpi.h.
+ * use the accessor functions in viper_scpi.h. The fields used for every
+ * input byte come first, where Thumb-1 loads reach them directly.
  */
 struct viper_scpi_context_s {
     const viper_scpi_config_t *cfg;
-    void *user_data;
+    uint32_t block_remaining;
+    uint16_t length;
+    uint16_t unit_start;   /**< Buffer offset where the current unit starts */
+    uint16_t hash_pos;     /**< Buffer offset of the '#' of the current block */
+    uint16_t exec_pos;     /**< Resume point of a suspended message; while
+                                streaming, the end of the streamed header */
+    uint8_t wait;          /**< WAIT_* : why execution is suspended */
+    uint8_t overflow;      /**< The message is dropped (overrun, refused) */
+    uint8_t skip_unit;     /**< Rest of the unit is lexed but not kept */
+    uint8_t block_state;
+    char quote;
+    char last;
+    uint8_t block_digits;
+    uint8_t msg_started;   /**< A message is executing (or streaming, or
+                                suspended); its response is not complete */
+    uint8_t running;       /**< Inside run_line(): units are executing */
+    uint8_t resumed;       /**< The callback is re-run after a defer */
+    uint8_t is_query;
+    uint8_t param_count;
+    uint8_t suffix_count;
+    uint8_t prefix_count;
+    uint8_t line_has_output;
+    uint8_t unit_has_output;
+    uint8_t err_head;
+    uint8_t err_count;
+    uint8_t esr;
+    uint8_t ese;
+    uint8_t sre;
+    uint8_t srq_prev;      /**< Service-request summary at the last check */
+    uint8_t srq_new;       /**< Rising edge not yet taken */
+    uint8_t rqs;           /**< Service requested and not yet polled */
+    uint8_t op_count;      /**< Pending operations (op_begin - op_end) */
+    uint8_t opc_armed;     /**< *OPC given while operations were pending */
+    uint8_t out_block_active;
+    uint8_t out_overflow;
     char buffer[VIPER_SCPI_BUFFER_SIZE];
-    size_t length;
-    viper_scpi_token_t prefix[VIPER_SCPI_MAX_RECURSION_DEPTH]; /**< Relative-path base */
     viper_scpi_token_t params[VIPER_SCPI_MAX_PARAMS];
-    size_t param_count;
+    viper_scpi_token_t prefix[VIPER_SCPI_PREFIX_SIZE]; /**< Relative-path base */
+    int32_t suffix[VIPER_SCPI_MAX_SUFFIXES]; /**< -1 = suffix omitted */
     int16_t err_queue[VIPER_SCPI_ERROR_QUEUE_SIZE];
     const char *err_info[VIPER_SCPI_ERROR_QUEUE_SIZE]; /**< Static detail or NULL */
-    int32_t suffix[VIPER_SCPI_MAX_SUFFIXES]; /**< -1 = suffix omitted */
     /* Output queue (message-exchange model): text with at most one generated
      * block spliced in at out_block_at; read order is
      * text[0, block_at), block, text[block_at, out_len). */
@@ -282,45 +319,10 @@ struct viper_scpi_context_s {
     uint32_t out_block_done;
     viper_scpi_block_fill_t out_fill;
     void *out_fill_user;
-    uint8_t out_block_active;
-    uint8_t out_overflow;
-    uint8_t srq_prev;      /**< Service-request summary at the last check */
-    uint8_t srq_new;       /**< Rising edge not yet taken */
-    uint8_t rqs;           /**< Service requested and not yet polled */
-    /* Overlapped commands: a message suspended by *WAI or *OPC? resumes at
-     * exec_pos once no operation is pending. */
-    size_t exec_pos;
-    uint8_t op_count;      /**< Pending operations (op_begin - op_end) */
-    uint8_t wait;          /**< WAIT_* : why execution is suspended */
-    uint8_t opc_armed;     /**< *OPC given while operations were pending */
-    uint8_t skip_unit;     /**< Rest of the unit is lexed but not kept */
-    uint8_t running;       /**< Inside run_line(): units are executing */
-    uint8_t resumed;       /**< The callback is re-run after a defer */
     viper_scpi_cmd_callback_t deferred; /**< Callback of the running command,
                                              re-run after viper_scpi_defer() */
-    viper_scpi_status_set_t status[2]; /**< OPERation, QUEStionable */
-    /* Streaming block input */
-    viper_scpi_block_stream_t stream;  /**< Handler of the block being streamed */
-    size_t unit_start;     /**< Buffer offset where the current unit starts */
-    size_t hash_pos;       /**< Buffer offset of the '#' of the current block */
-    uint8_t msg_started;   /**< A message is executing (or streaming, or
-                                suspended); its response is not complete */
-    uint32_t block_remaining;
-    uint8_t suffix_count;
-    uint8_t prefix_count;
-    uint8_t block_state;
-    uint8_t block_digits;
-    char quote;
-    char last;
-    uint8_t err_head;
-    uint8_t err_count;
-    uint8_t overflow;
-    uint8_t is_query;
-    uint8_t line_has_output;
-    uint8_t unit_has_output;
-    uint8_t esr;
-    uint8_t ese;
-    uint8_t sre;
+    viper_scpi_block_stream_t stream;   /**< Handler of the block being streamed */
+    viper_scpi_status_set_t status[2];  /**< OPERation, QUEStionable */
 };
 
 #ifdef __cplusplus

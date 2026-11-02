@@ -60,11 +60,11 @@
 
 /* The documented ranges, checked: the context stores these counts in 8 bits,
  * and a value outside them would corrupt state without a warning. */
-#if VIPER_SCPI_BUFFER_SIZE < 1
-#error "VIPER_SCPI_BUFFER_SIZE must be at least 1"
+#if VIPER_SCPI_BUFFER_SIZE < 1 || VIPER_SCPI_BUFFER_SIZE > 65535
+#error "VIPER_SCPI_BUFFER_SIZE must be 1..65535"
 #endif
-#if VIPER_SCPI_MAX_PARAMS < 1
-#error "VIPER_SCPI_MAX_PARAMS must be at least 1"
+#if VIPER_SCPI_MAX_PARAMS < 1 || VIPER_SCPI_MAX_PARAMS > 255
+#error "VIPER_SCPI_MAX_PARAMS must be 1..255"
 #endif
 #if VIPER_SCPI_MAX_RECURSION_DEPTH < 1 || VIPER_SCPI_MAX_RECURSION_DEPTH > 255
 #error "VIPER_SCPI_MAX_RECURSION_DEPTH must be 1..255"

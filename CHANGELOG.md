@@ -12,6 +12,12 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
   for optional ones that are consumed: the worst-case stack fell from about
   1960 to about 1190 bytes on Cortex-M0+, a typical command from about 630 to
   550.
+- The context is 352 bytes on Cortex-M instead of 444 (424 instead of 664 on
+  a 64-bit host): parameter and path tokens are 16-bit offsets into the line
+  buffer, the path holds one entry fewer, the copy of `cfg.user_data` is gone
+  and the fields used for every input byte come first. The library code is
+  about 580 bytes smaller on Cortex-M0+ as a result. `VIPER_SCPI_BUFFER_SIZE`
+  is limited to 65535 and `VIPER_SCPI_MAX_PARAMS` to 255 (compile errors).
 
 ## [0.3.0] - 2026-11-02
 

@@ -31,7 +31,7 @@ static void emit(viper_scpi_context_t *ctx, const char *s, size_t n)
         return;
     }
     if (!queued(ctx)) {
-        if (cfg->write != NULL && cfg->write(ctx->user_data, s, n) < n) {
+        if (cfg->write != NULL && cfg->write(cfg->user_data, s, n) < n) {
             /* The transport took only part of it. The rest of this response
              * message, terminator included, is not written: a reply cut
              * short must not read as a complete, valid one. */
@@ -290,7 +290,7 @@ void viper_scpi_result_string(viper_scpi_context_t *ctx, const char *str)
 
 void *viper_scpi_user_data(const viper_scpi_context_t *ctx)
 {
-    return ctx->user_data;
+    return ctx->cfg->user_data;
 }
 
 bool viper_scpi_is_query(const viper_scpi_context_t *ctx)
@@ -312,7 +312,11 @@ viper_scpi_result_t viper_scpi_expect(const viper_scpi_context_t *ctx, int set_p
 
 /* ---- Tokenizer ----------------------------------------------------------- */
 
-typedef viper_scpi_token_t segment_t;
+/* A header mnemonic during resolution. */
+typedef struct {
+    const char *str;
+    size_t len;
+} segment_t;
 
 /* True if a parameter, and so possibly a block, can start after @p prev.
  * The input state machine applies the same rule to ctx->last, with 0 for the
@@ -406,8 +410,8 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
         if (ctx->param_count >= VIPER_SCPI_MAX_PARAMS) {
             return VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED;
         }
-        ctx->params[ctx->param_count].str = p + ts;
-        ctx->params[ctx->param_count].len = te - ts;
+        ctx->params[ctx->param_count].off = (uint16_t)(p + ts - ctx->buffer);
+        ctx->params[ctx->param_count].len = (uint16_t)(te - ts);
         ctx->param_count++;
 
         while (i < n && viper_scpi_is_space(p[i])) {
@@ -617,7 +621,8 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
         pos = 1;
     }
     for (; nseg < ctx->prefix_count; nseg++) {
-        segs[nseg] = ctx->prefix[nseg];
+        segs[nseg].str = ctx->buffer + ctx->prefix[nseg].off;
+        segs[nseg].len = ctx->prefix[nseg].len;
     }
     npre = nseg;
     if (hlen > pos && h[hlen - 1] == '?') {
@@ -664,7 +669,9 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
 
     /* Remember everything but the last mnemonic for relative headers. */
     for (size_t i = 0; first + i + 1 < nseg; i++) {
-        ctx->prefix[i] = segs[first + i];
+        /* The header lies in ctx->buffer: keep offsets, not pointers. */
+        ctx->prefix[i].off = (uint16_t)(segs[first + i].str - ctx->buffer);
+        ctx->prefix[i].len = (uint16_t)segs[first + i].len;
     }
     ctx->prefix_count = (uint8_t)(nseg - first - 1);
     *out = node;
@@ -891,7 +898,7 @@ static void run_line(viper_scpi_context_t *ctx)
         }
         start = i + 1;
         if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
-            ctx->exec_pos = start;
+            ctx->exec_pos = (uint16_t)start; /* < VIPER_SCPI_BUFFER_SIZE */
             ctx->running = 0;
             return;
         }
@@ -996,7 +1003,6 @@ viper_scpi_result_t viper_scpi_init_sized(viper_scpi_context_t *ctx,
     }
     memset(ctx, 0, sizeof *ctx);
     ctx->cfg = cfg;
-    ctx->user_data = cfg->user_data;
     ctx->esr = VIPER_SCPI_ESR_PON; /* IEEE 488.2 11.5.1.1.2: power on */
     viper_scpi_status_preset(ctx);
     return VIPER_SCPI_RES_OK;
@@ -1107,7 +1113,7 @@ static bool stream_start(viper_scpi_context_t *ctx)
     ctx->line_has_output = 0; /* message_begin(), except the path: */
     ctx->out_overflow = 0;    /* resolve_header() has just set it */
     ctx->msg_started = 1;
-    ctx->exec_pos = (size_t)(s - ctx->buffer) + hlen; /* end of the header */
+    ctx->exec_pos = (uint16_t)((size_t)(s - ctx->buffer) + hlen); /* end of the header */
     ctx->unit_has_output = 0;
     ctx->stream = sn->handler;
     ctx->block_state = BLK_STREAM;
