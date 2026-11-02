@@ -80,15 +80,9 @@ static viper_scpi_result_t status_access(viper_scpi_context_t *ctx, unsigned reg
     if (target == NULL) {
         return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER; /* EVENt/CONDition are queries */
     }
-    res = viper_scpi_param_int32(ctx, 0, &v);
+    res = viper_scpi_param_register(ctx, (int32_t)STATUS_BITS, &v);
     if (res != VIPER_SCPI_RES_OK) {
         return res;
-    }
-    if (ctx->param_count > 1) {
-        return VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED;
-    }
-    if (v < 0 || v > (int32_t)STATUS_BITS) {
-        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
     *target = (uint16_t)v;
     viper_scpi_srq_update(ctx); /* a new enable mask can raise the summary */

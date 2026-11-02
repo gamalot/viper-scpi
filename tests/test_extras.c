@@ -208,11 +208,13 @@ static void test_keywords_int(void)
     CHECK_INT(err(), -222);
     fx_send("PCO 101");
     CHECK_INT(err(), -222);
-    fx_send("PCO 2.5");
-    CHECK_INT(err(), -104);
     fx_send("PCO");
     CHECK_INT(err(), -109);
     CHECK_INT(g_pcount, 32);
+    fx_send("PCO 2.5");                   /* rounded */
+    CHECK_INT(err(), 0);
+    CHECK_INT(g_pcount, 3);
+    g_pcount = 32;
 }
 
 static void test_keyword_api_arguments(void)

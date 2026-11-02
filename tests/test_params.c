@@ -53,7 +53,11 @@ static void test_integer_errors(void)
     CHECK_INT(err(), -222);
     fx_send("COUNT abc");
     CHECK_INT(err(), -104);
-    fx_send("COUNT 1.5");
+    fx_send("COUNT 1.5E");
+    CHECK_INT(err(), -104);
+    fx_send("COUNT .");
+    CHECK_INT(err(), -104);
+    fx_send("COUNT 1.2.3");
     CHECK_INT(err(), -104);
     fx_send("COUNT 0x");
     CHECK_INT(err(), -104);
@@ -346,8 +350,8 @@ static void test_special_values(void)
     CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 3, 0, 10, 1, &i, &kw), 0);
     CHECK_INT(kw, VIPER_SCPI_KW_MAX);
     CHECK_INT(i, 10);
-    CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 5, 0, 10, 1, &i, &kw),
-              VIPER_SCPI_RES_ERR_DATA_TYPE);       /* 4.5 is not an integer */
+    CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 5, 0, 10, 1, &i, &kw), 0);
+    CHECK_INT(i, 5);                               /* 4.5 is rounded */
     CHECK_INT(viper_scpi_param_int32_kw_ex(&g_ctx, 0, 0, 10, 1, &i, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
 
@@ -382,8 +386,14 @@ static void test_booleans(void)
 
     fx_send("OUTP:STAT MAYBE");
     CHECK_INT(err(), -104);
-    fx_send("OUTP:STAT 2");
-    CHECK_INT(err(), -104);
+    fx_send("OUTP:STAT 2;STAT?");                 /* SCPI-99 7.3: non-zero is ON */
+    CHECK_INT(err(), 0);
+    CHECK_STR(fx_out(), "1\n1\n");
+    fx_clear();
+    fx_send("OUTP:STAT 0.4;STAT?");               /* rounds to 0 */
+    CHECK_STR(fx_out(), "0\n");
+    fx_send("OUTP:STAT 1.0");
+    fx_clear();
     fx_send("OUTP:STAT O");
     CHECK_INT(err(), -104);
     fx_send("OUTP:STAT");
@@ -490,7 +500,8 @@ static void test_api_argument_checks(void)
     CHECK_INT(viper_scpi_param_double(&g_ctx, 0, &d), 0);
     CHECK(d == 5.0);
     CHECK_INT(viper_scpi_param_bool(&g_ctx, 0, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_bool(&g_ctx, 0, &b), VIPER_SCPI_RES_ERR_DATA_TYPE);
+    CHECK_INT(viper_scpi_param_bool(&g_ctx, 0, &b), 0);
+    CHECK(b);
     CHECK_INT(viper_scpi_param_choice(&g_ctx, 0, NULL, &c), VIPER_SCPI_RES_ERR_PARAM_INVALID);
     CHECK_INT(viper_scpi_param_choice(&g_ctx, 0, ch, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
     CHECK_INT(viper_scpi_param_choice(&g_ctx, 0, ch, &c), VIPER_SCPI_RES_ERR_ILLEGAL_VALUE);
@@ -501,6 +512,70 @@ static void test_api_argument_checks(void)
     CHECK_STR(buf, "x");
     CHECK_INT(viper_scpi_param_string(&g_ctx, 1, buf, 1, NULL), VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
     CHECK_INT(viper_scpi_param_string(&g_ctx, 5, buf, sizeof buf, NULL), VIPER_SCPI_RES_ERR_MISSING_PARAM);
+}
+
+/* Integer parameters take decimal numeric data and round it, half away from
+ * zero (IEEE 488.2 7.7.2, SCPI-99 7.2), without floating point. */
+static void test_integer_rounding(void)
+{
+    fx_setup();
+    fx_send("COUNT 1.5");
+    CHECK_INT(g_count, 2);
+    fx_send("COUNT -1.5");
+    CHECK_INT(g_count, -2);
+    fx_send("COUNT 1.49");
+    CHECK_INT(g_count, 1);
+    fx_send("COUNT 3.2E1");
+    CHECK_INT(g_count, 32);
+    fx_send("COUNT 25E-1");
+    CHECK_INT(g_count, 3);
+    fx_send("COUNT 0.0004E3");
+    CHECK_INT(g_count, 0);
+    fx_send("COUNT .5");
+    CHECK_INT(g_count, 1);
+    fx_send("COUNT 2147483647.4");
+    CHECK_INT(g_count, 2147483647L);
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+    fx_send("COUNT 2147483647.5");
+    CHECK_INT(err(), -222);
+    fx_send("COUNT 1E10");
+    CHECK_INT(err(), -222);
+    fx_send("COUNT 1E-99999");
+    CHECK_INT(err(), 0);
+    CHECK_INT(g_count, 0);
+    fx_send("UCOUNT 4294967295.49");
+    CHECK(g_ucount == 4294967295u);
+    fx_send("UCOUNT 4294967295.5");
+    CHECK_INT(err(), -222);
+}
+
+/* A rejected string leaves the destination as it was. */
+static void test_string_error_keeps_destination(void)
+{
+    fx_setup();
+    fx_send("NAME \"abc\"");
+    fx_send("NAME \"a\"x\"b\"");
+    CHECK_INT(err(), -104);
+    CHECK_STR(g_name, "abc");
+    fx_send("NAME \"0123456789012345678901234567890123456789\"");
+    CHECK_INT(err(), -222);
+    CHECK_STR(g_name, "abc");
+    fx_send("NAME \"0123456789012345678901234567890\"");  /* 31 chars fit */
+    CHECK_INT(err(), 0);
+    CHECK_STR(g_name, "0123456789012345678901234567890");
+}
+
+/* The range-checked integer parsers treat NAN and INF like the double
+ * ones: -224 and -222, not a data type error. */
+static void test_int_kw_special_values(void)
+{
+    fx_setup();
+    fx_send("PCO NAN");
+    CHECK_INT(err(), -224);
+    fx_send("PCO INF");
+    CHECK_INT(err(), -222);
+    fx_send("PCO NINF");
+    CHECK_INT(err(), -222);
 }
 
 int main(void)
@@ -519,5 +594,8 @@ int main(void)
     test_strings();
     test_string_errors();
     test_api_argument_checks();
+    test_integer_rounding();
+    test_string_error_keeps_destination();
+    test_int_kw_special_values();
     return test_summary("test_params");
 }

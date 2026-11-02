@@ -5,6 +5,7 @@
  * soft-float code behind them -- from the static library.
  */
 #include <float.h>
+#include <locale.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,11 +33,14 @@ void viper_scpi_result_double_digits(viper_scpi_context_t *ctx, double value, in
     } else if (value < -DBL_MAX) {
         s = "-9.9E+37";
     } else {
-        (void)snprintf(buf, sizeof buf, "%.*g", digits, value);
         /* IEEE 488.2 8.7.4: the NR3 exponent marker is an upper-case E. */
+        (void)snprintf(buf, sizeof buf, "%.*G", digits, value);
+        /* The radix character follows LC_NUMERIC; SCPI's is always '.' (a
+         * ',' would read as a data separator). Everything else %G writes is
+         * a digit, a sign or 'E'. */
         for (char *p = buf; *p != '\0'; p++) {
-            if (*p == 'e') {
-                *p = 'E';
+            if (!(*p >= '0' && *p <= '9') && *p != '-' && *p != '+' && *p != 'E') {
+                *p = '.';
             }
         }
     }
@@ -90,6 +94,30 @@ static bool valid_float(const char *s, size_t n)
     return i == n;
 }
 
+/*
+ * strtod() of the NUL-terminated number text @p tmp (@p n characters, already
+ * validated). strtod() follows LC_NUMERIC, so in a locale whose radix is not
+ * '.' (a hosted build after setlocale()) the '.' is swapped for it. False if
+ * the text still is not read completely.
+ */
+static bool to_double(char *tmp, size_t n, double *v)
+{
+    char *end;
+
+    *v = strtod(tmp, &end);
+    if (end != tmp + n) {
+        const char *dp = localeconv()->decimal_point;
+        char *point = strchr(tmp, '.');
+
+        if (point == NULL || dp == NULL || dp[0] == '\0' || dp[0] == '.' || dp[1] != '\0') {
+            return false;
+        }
+        *point = dp[0];
+        *v = strtod(tmp, &end);
+    }
+    return end == tmp + n;
+}
+
 /* INFinity, NINFinity and NAN (SCPI-99 7.2.1.5). */
 static bool special_double(const char *s, size_t n, double *v)
 {
@@ -133,8 +161,10 @@ viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, siz
     }
     memcpy(tmp, s, n);
     tmp[n] = '\0';
-    v = strtod(tmp, NULL);
-    if (v > 1.7976931348623157e308 || v < -1.7976931348623157e308) {
+    if (!to_double(tmp, n, &v)) {
+        return VIPER_SCPI_RES_ERR_DATA_TYPE;
+    }
+    if (v > DBL_MAX || v < -DBL_MAX) {
         return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
     *out = v;
@@ -236,14 +266,19 @@ const viper_scpi_unit_t viper_scpi_units_celsius[] = {
     { "CEL", 1.0, VIPER_SCPI_UNIT_NO_PREFIX }, { NULL, 0, 0 }
 };
 
+/* Multiplier prefixes as powers of 1000. Scaling multiplies or divides by
+ * an exact power of ten, so "10US" is the same double as "10E-6": an inexact
+ * factor such as 1e-6 would add a second rounding and put values on a range
+ * limit just outside it. */
 static const struct {
-    const char *name;
-    double factor;
+    char name[3];
+    int8_t exp3;
 } prefixes[] = {
-    { "EX", 1e18 }, { "PE", 1e15 }, { "MA", 1e6 }, { "T", 1e12 }, { "G", 1e9 },
-    { "K", 1e3 }, { "M", 1e-3 }, { "U", 1e-6 }, { "N", 1e-9 }, { "P", 1e-12 },
-    { "F", 1e-15 }, { "A", 1e-18 },
+    { "EX", 6 }, { "PE", 5 }, { "MA", 2 }, { "T", 4 }, { "G", 3 }, { "K", 1 },
+    { "M", -1 }, { "U", -2 }, { "N", -3 }, { "P", -4 }, { "F", -5 }, { "A", -6 },
 };
+
+static const double pow1000[] = { 1e0, 1e3, 1e6, 1e9, 1e12, 1e15, 1e18 }; /* exact */
 
 /* a[0..alen) equals the NUL-terminated b, ignoring case. */
 static bool equals_nocase(const char *a, size_t alen, const char *b)
@@ -256,13 +291,15 @@ static bool equals_nocase(const char *a, size_t alen, const char *b)
     return b[alen] == '\0';
 }
 
-/* Resolves a suffix such as "MV" or "KHZ" to a factor to the base unit. */
+/* Resolves a suffix such as "MV" or "KHZ": the unit's scale to the base
+ * unit and the prefix as a power of 1000. */
 static bool lookup_unit(const viper_scpi_unit_t *units, const char *sfx, size_t n,
-                        double *factor)
+                        double *scale, int *exp3)
 {
+    *exp3 = 0;
     for (const viper_scpi_unit_t *u = units; u->name != NULL; u++) {
         if (equals_nocase(sfx, n, u->name)) {
-            *factor = u->scale;
+            *scale = u->scale;
             return true;
         }
     }
@@ -272,17 +309,17 @@ static bool lookup_unit(const viper_scpi_unit_t *units, const char *sfx, size_t 
         }
         for (size_t i = 0; i < sizeof prefixes / sizeof prefixes[0]; i++) {
             size_t pl = prefixes[i].name[1] != '\0' ? 2u : 1u; /* "EX" or "K" */
-            double f = prefixes[i].factor;
 
             if (n <= pl || !equals_nocase(sfx, pl, prefixes[i].name) ||
                 !equals_nocase(sfx + pl, n - pl, u->name)) {
                 continue;
             }
+            *exp3 = prefixes[i].exp3;
             if (pl == 1 && prefixes[i].name[0] == 'M' &&
                 (u->flags & VIPER_SCPI_UNIT_M_IS_MEGA) != 0) {
-                f = 1e6;
+                *exp3 = 2;
             }
-            *factor = f * u->scale;
+            *scale = u->scale;
             return true;
         }
     }
@@ -336,7 +373,6 @@ viper_scpi_result_t viper_scpi_param_double_unit(const viper_scpi_context_t *ctx
     size_t num;
     char tmp[48];
     double v;
-    double factor = 1.0;
     viper_scpi_result_t res;
 
     if (units == NULL || out == NULL) {
@@ -355,7 +391,9 @@ viper_scpi_result_t viper_scpi_param_double_unit(const viper_scpi_context_t *ctx
     }
     memcpy(tmp, s, num);
     tmp[num] = '\0';
-    v = strtod(tmp, NULL);
+    if (!to_double(tmp, num, &v)) {
+        return VIPER_SCPI_RES_ERR_DATA_TYPE;
+    }
 
     while (num < n && viper_scpi_is_space(s[num])) {
         num++;
@@ -367,12 +405,16 @@ viper_scpi_result_t viper_scpi_param_double_unit(const viper_scpi_context_t *ctx
                 return VIPER_SCPI_RES_ERR_INVALID_SUFFIX;
             }
         }
-        if (!lookup_unit(units, s + num, n - num, &factor)) {
+        double scale;
+        int exp3;
+
+        if (!lookup_unit(units, s + num, n - num, &scale, &exp3)) {
             return VIPER_SCPI_RES_ERR_INVALID_SUFFIX;
         }
-        v *= factor;
+        v = (exp3 >= 0) ? v * pow1000[exp3] : v / pow1000[-exp3];
+        v *= scale;
     }
-    if (v > 1.7976931348623157e308 || v < -1.7976931348623157e308) {
+    if (v > DBL_MAX || v < -DBL_MAX) {
         return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
     *out = v;

@@ -249,6 +249,31 @@ static void test_trg(void)
     CHECK_INT(viper_scpi_error_pop(&g_ctx), -113);
 }
 
+/* *ESE and *SRE take decimal numeric data rounded to an integer (IEEE 488.2
+ * 10.10, 10.34) and exactly one value. The STATus registers likewise. */
+static void test_register_values(void)
+{
+    fx_setup();
+    fx_send("*ESE 32.0;*SRE 3.2E1;*ESE?;*SRE?");
+    CHECK_STR(fx_out(), "32;32\n");
+    fx_clear();
+    fx_send("*ESE 31.6;*ESE?");
+    CHECK_STR(fx_out(), "32\n");
+    fx_clear();
+    fx_send("*ESE 1,2");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -108);
+    fx_send("*SRE 16,99");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -108);
+    fx_send("*ESE?;*SRE?");
+    CHECK_STR(fx_out(), "32;32\n");                 /* unchanged */
+    fx_clear();
+    fx_send("*ESE 255.5");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -222);
+    fx_send("STAT:OPER:ENAB 16.0;ENAB?");
+    CHECK_STR(fx_out(), "16\n");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+}
+
 int main(void)
 {
     test_idn();
@@ -266,5 +291,6 @@ int main(void)
     test_event_set();
     test_power_on();
     test_trg();
+    test_register_values();
     return test_summary("test_ieee488");
 }

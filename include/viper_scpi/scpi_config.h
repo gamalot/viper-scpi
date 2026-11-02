@@ -58,4 +58,25 @@
 #define VIPER_SCPI_DEFAULT_FIRMWARE "0.1.0"
 #endif
 
+/* The documented ranges, checked: the context stores these counts in 8 bits,
+ * and a value outside them would corrupt state without a warning. */
+#if VIPER_SCPI_BUFFER_SIZE < 1
+#error "VIPER_SCPI_BUFFER_SIZE must be at least 1"
+#endif
+#if VIPER_SCPI_MAX_PARAMS < 1
+#error "VIPER_SCPI_MAX_PARAMS must be at least 1"
+#endif
+#if VIPER_SCPI_MAX_RECURSION_DEPTH < 1 || VIPER_SCPI_MAX_RECURSION_DEPTH > 255
+#error "VIPER_SCPI_MAX_RECURSION_DEPTH must be 1..255"
+#endif
+#if VIPER_SCPI_MAX_SUFFIXES < 1 || VIPER_SCPI_MAX_SUFFIXES > 255
+#error "VIPER_SCPI_MAX_SUFFIXES must be 1..255"
+#endif
+#if VIPER_SCPI_DOUBLE_DIGITS < 1 || VIPER_SCPI_DOUBLE_DIGITS > 17
+#error "VIPER_SCPI_DOUBLE_DIGITS must be 1..17"
+#endif
+#if VIPER_SCPI_ERROR_QUEUE_SIZE < 2 || VIPER_SCPI_ERROR_QUEUE_SIZE > 255
+#error "VIPER_SCPI_ERROR_QUEUE_SIZE must be 2..255"
+#endif
+
 #endif /* VIPER_SCPI_CONFIG_H */

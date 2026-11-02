@@ -136,7 +136,8 @@ bool viper_scpi_item_match(const viper_scpi_pattern_item_t *item, const char *to
 
 int32_t viper_scpi_suffix(const viper_scpi_context_t *ctx, size_t index, int32_t default_value)
 {
-    if (index >= ctx->suffix_count || ctx->suffix[index] < 0) {
+    if (index >= ctx->suffix_count || index >= VIPER_SCPI_MAX_SUFFIXES ||
+        ctx->suffix[index] < 0) {
         return default_value;
     }
     return ctx->suffix[index];
@@ -211,8 +212,105 @@ static int digit_value(char c)
     return -1;
 }
 
-/* Parses sign and magnitude; a magnitude above UINT32_MAX is OUT_OF_RANGE.
- * 32-bit arithmetic only, so Cortex-M0 needs no 64-bit runtime helpers. */
+/*
+ * Decimal numeric program data (IEEE 488.2 7.7.2: NR1, NR2 or NR3, e.g. "42",
+ * "1.5", "3.2E1") rounded to an integer, half away from zero, as 488.2 and
+ * SCPI-99 require for integer settings. Unsigned magnitude only; a value above
+ * UINT32_MAX is OUT_OF_RANGE. 32-bit arithmetic without divisions, so it
+ * pulls in no floating-point or 64-bit helpers.
+ */
+static viper_scpi_result_t parse_decimal(const char *s, size_t n, uint32_t *mag)
+{
+    size_t i = 0;
+    size_t mant_end;
+    size_t ndigits = 0;
+    size_t int_digits = 0;
+    bool point = false;
+    int32_t exp = 0;
+    int32_t pos;   /* number of mantissa digits before the decimal point */
+    int32_t k = 0; /* index of the current mantissa digit */
+    uint32_t acc = 0;
+
+    for (; i < n; i++) {
+        if (s[i] >= '0' && s[i] <= '9') {
+            ndigits++;
+            if (!point) {
+                int_digits++;
+            }
+        } else if (s[i] == '.' && !point) {
+            point = true;
+        } else {
+            break;
+        }
+    }
+    mant_end = i;
+    if (ndigits == 0) {
+        return VIPER_SCPI_RES_ERR_DATA_TYPE;
+    }
+    if (i < n) {
+        bool eneg = false;
+        size_t edigits = 0;
+
+        if (viper_scpi_upper(s[i]) != 'E') {
+            return VIPER_SCPI_RES_ERR_DATA_TYPE;
+        }
+        i++;
+        if (i < n && (s[i] == '+' || s[i] == '-')) {
+            eneg = s[i] == '-';
+            i++;
+        }
+        for (; i < n && s[i] >= '0' && s[i] <= '9'; i++, edigits++) {
+            if (exp < 100000) {
+                exp = exp * 10 + (s[i] - '0'); /* saturates: still decides */
+            }
+        }
+        if (edigits == 0 || i != n) {
+            return VIPER_SCPI_RES_ERR_DATA_TYPE;
+        }
+        if (eneg) {
+            exp = -exp;
+        }
+    }
+
+    pos = (int32_t)int_digits + exp;
+    for (i = 0; i < mant_end && k <= pos; i++) {
+        uint32_t d;
+
+        if (s[i] == '.') {
+            continue;
+        }
+        d = (uint32_t)(s[i] - '0');
+        if (k == pos) {
+            /* First digit after the point: rounds the magnitude. */
+            if (d >= 5u) {
+                if (acc == UINT32_MAX) {
+                    return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+                }
+                acc++;
+            }
+        } else {
+            /* acc * 10 + d > UINT32_MAX, without a division. */
+            if (acc > 429496729u || (acc == 429496729u && d > 5u)) {
+                return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+            }
+            acc = acc * 10u + d;
+        }
+        k++;
+    }
+    for (; k < pos && acc != 0; k++) { /* zeros the exponent appends */
+        if (acc > 429496729u) {
+            return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+        }
+        acc *= 10u;
+    }
+    *mag = acc;
+    return VIPER_SCPI_RES_OK;
+}
+
+/* Parses sign and magnitude: a decimal number (rounded, see parse_decimal())
+ * or a #H/#Q/#B/0x non-decimal one. A magnitude above UINT32_MAX is
+ * OUT_OF_RANGE. 32-bit arithmetic only, so Cortex-M0 needs no 64-bit runtime
+ * helpers. */
 static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uint32_t *mag)
 {
     uint32_t base = 10;
@@ -241,6 +339,8 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uin
         if (n - i > 2 && s[i] == '0' && viper_scpi_upper(s[i + 1]) == 'X') {
             base = 16;
             i += 2;
+        } else {
+            return parse_decimal(s + i, n - i, mag);
         }
     }
     if (i >= n) {
@@ -345,12 +445,22 @@ viper_scpi_result_t viper_scpi_param_bool(const viper_scpi_context_t *ctx, size_
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
-    if ((n == 2 && viper_scpi_pattern_match("ON", s, n)) || (n == 1 && s[0] == '1')) {
+    if (n == 2 && viper_scpi_pattern_match("ON", s, n)) {
         *out = true;
-    } else if ((n == 3 && viper_scpi_pattern_match("OFF", s, n)) || (n == 1 && s[0] == '0')) {
+    } else if (n == 3 && viper_scpi_pattern_match("OFF", s, n)) {
         *out = false;
     } else {
-        return VIPER_SCPI_RES_ERR_DATA_TYPE;
+        /* SCPI-99 7.3: a number is rounded; non-zero is ON. */
+        bool neg;
+        uint32_t mag = 0;
+
+        res = parse_integer(s, n, &neg, &mag);
+        if (res == VIPER_SCPI_RES_ERR_OUT_OF_RANGE) {
+            mag = 1; /* huge, so not zero */
+        } else if (res != VIPER_SCPI_RES_OK) {
+            return VIPER_SCPI_RES_ERR_DATA_TYPE;
+        }
+        *out = mag != 0;
     }
     return VIPER_SCPI_RES_OK;
 }
@@ -398,6 +508,8 @@ viper_scpi_result_t viper_scpi_param_string(const viper_scpi_context_t *ctx, siz
     if (n < 2 || (q != '"' && q != '\'') || s[n - 1] != q) {
         return VIPER_SCPI_RES_ERR_DATA_TYPE;
     }
+    /* Validate and measure first: a rejected parameter leaves @p out as it
+     * was (it is often the instrument's current setting). */
     for (size_t i = 1; i < n - 1; i++) {
         if (s[i] == q) {
             if (i + 1 < n - 1 && s[i + 1] == q) {
@@ -406,10 +518,17 @@ viper_scpi_result_t viper_scpi_param_string(const viper_scpi_context_t *ctx, siz
                 return VIPER_SCPI_RES_ERR_DATA_TYPE; /* stray delimiter */
             }
         }
-        if (w + 1 >= out_size) {
-            return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
-        }
+        w++;
+    }
+    if (w >= out_size) {
+        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+    }
+    w = 0;
+    for (size_t i = 1; i < n - 1; i++) {
         out[w++] = s[i];
+        if (s[i] == q) {
+            i++;
+        }
     }
     out[w] = '\0';
     if (out_len != NULL) {
@@ -472,6 +591,20 @@ static viper_scpi_result_t int32_kw(const viper_scpi_context_t *ctx, size_t idx,
         return VIPER_SCPI_RES_OK;
     }
     res = viper_scpi_param_int32(ctx, idx, &v);
+    if (res == VIPER_SCPI_RES_ERR_DATA_TYPE) {
+        /* As in the double parsers: NAN is never in a range, and INF/NINF
+         * lie outside any integer one. */
+        const char *s;
+        size_t n;
+        (void)viper_scpi_param_raw(ctx, idx, &s, &n);
+        if (viper_scpi_pattern_match("NAN", s, n)) {
+            return VIPER_SCPI_RES_ERR_ILLEGAL_VALUE;
+        }
+        if (viper_scpi_pattern_match("INFinity", s, n) ||
+            viper_scpi_pattern_match("NINFinity", s, n)) {
+            return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+        }
+    }
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
@@ -482,6 +615,25 @@ static viper_scpi_result_t int32_kw(const viper_scpi_context_t *ctx, size_t idx,
     if (kw_out != NULL) {
         *kw_out = VIPER_SCPI_KW_NONE;
     }
+    return VIPER_SCPI_RES_OK;
+}
+
+viper_scpi_result_t viper_scpi_param_register(const viper_scpi_context_t *ctx, int32_t max,
+                                              int32_t *out)
+{
+    int32_t v;
+    viper_scpi_result_t res = viper_scpi_param_int32(ctx, 0, &v);
+
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    if (ctx->param_count > 1) {
+        return VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED;
+    }
+    if (v < 0 || v > max) {
+        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+    }
+    *out = v;
     return VIPER_SCPI_RES_OK;
 }
 

@@ -28,8 +28,10 @@ prompt is kept, out of date, in [docs/history/](docs/history/).
   a header without a leading `:` extends the previous header minus its last
   mnemonic, so `SOUR:VOLT 1;CURR 2` resolves `CURR` as `SOUR:CURR`; a leading
   `:` returns to the root; common commands (`*...`) do not change the path.
-- Parameter helpers: integers (decimal, `0x` / `#H` hex, `#B` binary, `#Q`
-  octal), floating point with exponent, booleans (`ON`/`OFF`/`1`/`0`), keyword
+- Parameter helpers: integers (decimal numbers such as `1.5` or `3.2E1` are
+  rounded, without floating point; `0x` / `#H` hex, `#B` binary, `#Q` octal),
+  floating point with exponent, booleans (`ON`/`OFF` or a number: non-zero is
+  ON), keyword
   choices (short/long form), quoted strings (`"..."` / `'...'`, doubled quotes
   as escape).
 - Optional mnemonics in the SCPI notation: `"VOLTage[:LEVel]"`,

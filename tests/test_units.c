@@ -230,6 +230,24 @@ static void test_custom_unit_table(void)
     CHECK_NEAR(d, 4e-3);                            /* M = milli by default */
 }
 
+/* A prefix scales by an exact power of ten: the result is the same double
+ * as the number written with the exponent, so a limit given in base units
+ * is not missed by one rounding step. */
+static void test_prefix_scaling_is_exact(void)
+{
+    fx_setup();
+    CHECK(set("TIM", "10US") == 10e-6);
+    CHECK(set("TIM", "100NS") == 100e-9);
+    CHECK(set("TIM", "5US") == 5e-6);
+    CHECK(set("TIM", "250NS") == 250e-9);
+    CHECK(set("AMPS", "9MA") == 9e-3);
+    CHECK(set("AMPS", "0.3MA") == 0.3e-3);
+    CHECK(set("FREQ", "2.5KHZ") == 2.5e3);
+    CHECK(set("FREQ", "3MHZ") == 3e6);
+    CHECK(set("TIM", "1.5MIN") == 90.0);
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+}
+
 int main(void)
 {
     test_hertz();
@@ -242,5 +260,6 @@ int main(void)
     test_unit_with_keywords();
     test_api_arguments();
     test_custom_unit_table();
+    test_prefix_scaling_is_exact();
     return test_summary("test_units");
 }

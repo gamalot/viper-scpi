@@ -414,26 +414,30 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
 /* Depth guard against malformed (cyclic) trees. */
 #define MAX_TREE_DEPTH (2 * VIPER_SCPI_MAX_RECURSION_DEPTH)
 
-static bool suffix_push(viper_scpi_context_t *ctx, int32_t value)
+/* Records the suffix of the next '#' mnemonic of the path. Only the first
+ * VIPER_SCPI_MAX_SUFFIXES are kept; further ones still count, so the
+ * indexes of viper_scpi_suffix() stay right and a deeper path still
+ * matches. */
+static void suffix_push(viper_scpi_context_t *ctx, int32_t value)
 {
-    if (ctx->suffix_count >= VIPER_SCPI_MAX_SUFFIXES) {
-        return false;
+    if (ctx->suffix_count < VIPER_SCPI_MAX_SUFFIXES) {
+        ctx->suffix[ctx->suffix_count] = value;
     }
-    ctx->suffix[ctx->suffix_count++] = value;
-    return true;
+    if (ctx->suffix_count < UINT8_MAX) {
+        ctx->suffix_count++;
+    }
 }
 
 /* Records -1 for every suffix mnemonic of a fully skipped pattern. */
-static bool push_skipped_suffixes(viper_scpi_context_t *ctx, const char *pattern)
+static void push_skipped_suffixes(viper_scpi_context_t *ctx, const char *pattern)
 {
     viper_scpi_pattern_item_t it;
 
     while (viper_scpi_pattern_next(&pattern, &it) == 1) {
-        if (it.has_suffix && !suffix_push(ctx, -1)) {
-            return false;
+        if (it.has_suffix) {
+            suffix_push(ctx, -1);
         }
     }
-    return true;
 }
 
 /* All segments are consumed: find an omittable node that has a callback. */
@@ -448,11 +452,10 @@ static const viper_scpi_node_t *find_default(viper_scpi_context_t *ctx,
     for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
         const viper_scpi_node_t *hit;
 
-        if (!viper_scpi_pattern_all_optional(n->pattern) ||
-            !push_skipped_suffixes(ctx, n->pattern)) {
-            ctx->suffix_count = saved;
+        if (!viper_scpi_pattern_all_optional(n->pattern)) {
             continue;
         }
+        push_skipped_suffixes(ctx, n->pattern);
         hit = (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
         if (hit != NULL) {
             return hit;
@@ -493,15 +496,20 @@ static const viper_scpi_node_t *match_items(viper_scpi_context_t *ctx,
         return NULL; /* malformed pattern */
     }
 
-    if (nseg > 0 && viper_scpi_item_match(&it, segs[0].str, segs[0].len, &sfx) &&
-        (!it.has_suffix || suffix_push(ctx, sfx))) {
+    if (nseg > 0 && viper_scpi_item_match(&it, segs[0].str, segs[0].len, &sfx)) {
+        if (it.has_suffix) {
+            suffix_push(ctx, sfx);
+        }
         hit = match_items(ctx, n, p, segs + 1, nseg - 1, depth);
         if (hit != NULL) {
             return hit;
         }
         ctx->suffix_count = saved;
     }
-    if (it.optional && (!it.has_suffix || suffix_push(ctx, -1))) {
+    if (it.optional) {
+        if (it.has_suffix) {
+            suffix_push(ctx, -1);
+        }
         hit = match_items(ctx, n, p, segs, nseg, depth);
         if (hit != NULL) {
             return hit;

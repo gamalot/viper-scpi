@@ -49,17 +49,17 @@ runs.
 
 | Function | Accepts | Notes |
 | --- | --- | --- |
-| `viper_scpi_param_int32` | `42`, `-7`, `+3`, `0x1F`, `#HFF`, `#B1010`, `#Q17` | sign only on decimal and `0x` |
+| `viper_scpi_param_int32` | `42`, `-7`, `+3`, `1.5`, `3.2E1`, `0x1F`, `#HFF`, `#B1010`, `#Q17` | a decimal number is rounded half away from zero (`1.5` is 2, `-0.5` is -1), in integer arithmetic; sign only on decimal and `0x` |
 | `viper_scpi_param_uint32` | as above, 0..4294967295 | `-0` is accepted |
-| `viper_scpi_param_int32_kw` | an integer, `MIN`, `MAX`, `DEF` | range-checked |
+| `viper_scpi_param_int32_kw` | an integer, `MIN`, `MAX`, `DEF` | range-checked; `NAN` is -224, `INF`/`NINF` -222 |
 | `viper_scpi_param_double` | `1.5`, `-.5`, `1E-3`, `2.5e+3`, `INF`, `NINF`, `NAN` | at least one digit; no hex |
 | `viper_scpi_param_double_kw` | a double, `MIN`, `MAX`, `DEF` | range-checked |
-| `viper_scpi_param_double_unit` | a double with an optional unit: `1.5KHZ`, `100 mV` | result in base units |
+| `viper_scpi_param_double_unit` | a double with an optional unit: `1.5KHZ`, `100 mV` | result in base units, scaled by an exact power of ten (`10US` equals `10E-6`) |
 | `viper_scpi_param_double_unit_kw` | the above plus `MIN`, `MAX`, `DEF` | range-checked in base units |
 | `..._kw_ex` variants | additionally `UP`, `DOWN` | report which keyword was given |
-| `viper_scpi_param_bool` | `ON`, `OFF`, `1`, `0` | case-insensitive |
+| `viper_scpi_param_bool` | `ON`, `OFF`, or a number | a number is rounded, non-zero is ON (SCPI-99 7.3) |
 | `viper_scpi_param_choice` | a keyword from your list, long or short form | value from the list |
-| `viper_scpi_param_string` | `"text"` or `'text'`, doubled quote as escape | copied, NUL-terminated |
+| `viper_scpi_param_string` | `"text"` or `'text'`, doubled quote as escape | copied, NUL-terminated; on an error `out` is left unchanged |
 | `viper_scpi_param_block` | `#<n><len><bytes>` or `#0<bytes>` | points into the line buffer |
 | `viper_scpi_param_raw` | anything | the token as received |
 

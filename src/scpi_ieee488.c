@@ -101,12 +101,9 @@ static viper_scpi_result_t reg_access(viper_scpi_context_t *ctx, uint8_t *reg)
         viper_scpi_result_int(ctx, *reg);
         return VIPER_SCPI_RES_OK;
     }
-    res = viper_scpi_param_int32(ctx, 0, &v);
+    res = viper_scpi_param_register(ctx, 255, &v);
     if (res != VIPER_SCPI_RES_OK) {
         return res;
-    }
-    if (v < 0 || v > 255) {
-        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
     *reg = (uint8_t)v;
     return VIPER_SCPI_RES_OK;

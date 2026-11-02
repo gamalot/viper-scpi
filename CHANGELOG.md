@@ -53,6 +53,30 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
   `(@1,2,3)`) no longer split parameters.
 - A streamed block longer than `SIZE_MAX` (16-bit `size_t`) is rejected with
   -222 instead of reporting a truncated length at BEGIN.
+- Integer parameters take decimal numeric data and round it, half away from
+  zero, in integer arithmetic (IEEE 488.2 7.7.2): `*ESE 32.0`, `*SRE 3.2E1`
+  and `STAT:OPER:ENAB 16.0` were -104. Booleans take a number too (non-zero
+  is ON, SCPI-99 7.3).
+- `*ESE` and `*SRE` reject a second parameter with -108, like the STATus
+  registers; it was silently ignored.
+- `viper_scpi_param_string()` leaves its destination unchanged when it
+  rejects a string (-104, -222); it used to overwrite it, and leave it
+  without a NUL on -222.
+- Unit prefixes scale by an exact power of ten, so `10US` is the same double
+  as `10E-6` and a value on a range limit given in base units is accepted
+  (`10US` with a minimum of 10e-6 was -222).
+- `viper_scpi_param_int32_kw()` reports `NAN` as -224 and `INF`/`NINF` as
+  -222, as documented and as the double parsers do (was -104).
+- A path with more `#` mnemonics than `VIPER_SCPI_MAX_SUFFIXES` matches; the
+  extra suffixes read as the default (it was -113).
+- Doubles are parsed and formatted with '.' as the radix also when a hosted
+  application has set a locale with a decimal comma (`VOLT 1.5` set 1, and
+  replies read `2,25`).
+- The overflow checks use `DBL_MAX` (a binary64 literal was out of range and
+  never fired with a 32-bit `double`).
+- The compile-time limits are checked: a value outside the documented range
+  (for example `VIPER_SCPI_ERROR_QUEUE_SIZE` 256, which wrapped the queue
+  count) is a compile error.
 
 ### Added
 

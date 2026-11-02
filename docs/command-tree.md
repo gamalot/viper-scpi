@@ -80,8 +80,9 @@ static viper_scpi_result_t cmd_chan_volt(viper_scpi_context_t *ctx)
   inherited from an earlier command on the line (see below).
 - An omitted suffix, or a skipped optional `#` mnemonic, keeps its index and
   returns the default you pass.
-- At most `VIPER_SCPI_MAX_SUFFIXES` (4) are recorded per command; a suffix has
-  at most 9 digits.
+- At most `VIPER_SCPI_MAX_SUFFIXES` (4) are recorded per command; a path with
+  more `#` mnemonics still matches, and the later ones read as the default. A
+  suffix has at most 9 digits.
 
 ## Relative paths and `;`
 

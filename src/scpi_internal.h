@@ -58,6 +58,11 @@ void viper_scpi_result_string_pair(viper_scpi_context_t *ctx, const char *a, con
 /** MIN/MAX/DEF/UP/DOWN keyword of parameter @p idx, or VIPER_SCPI_KW_NONE. */
 viper_scpi_numeric_kw_t viper_scpi_numeric_keyword(const viper_scpi_context_t *ctx, size_t idx);
 
+/** The one parameter of a register write (*ESE, *SRE, STATus ENABle/PTR/NTR):
+ *  an integer (an NRf is rounded) in 0..@p max, and no second parameter. */
+viper_scpi_result_t viper_scpi_param_register(const viper_scpi_context_t *ctx, int32_t max,
+                                              int32_t *out);
+
 /** PARAM_NOT_ALLOWED if the command carries parameters, else OK. */
 viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx);
 

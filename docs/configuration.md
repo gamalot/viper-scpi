@@ -36,14 +36,15 @@ shared.
 ## Compile-time limits
 
 Override with `-D` for the library **and** every file that includes its
-headers (they change the size of the context).
+headers (they change the size of the context). A value outside the range
+shown is a compile error.
 
 | Macro | Default | Meaning |
 | --- | --- | --- |
 | `VIPER_SCPI_BUFFER_SIZE` | 128 | bytes of one program message, blocks included |
 | `VIPER_SCPI_MAX_PARAMS` | 8 | parameters per command |
-| `VIPER_SCPI_MAX_RECURSION_DEPTH` | 8 | mnemonics per header, including the inherited path |
-| `VIPER_SCPI_MAX_SUFFIXES` | 4 | numeric suffixes recorded per command |
+| `VIPER_SCPI_MAX_RECURSION_DEPTH` | 8 | mnemonics per header, including the inherited path (1..255) |
+| `VIPER_SCPI_MAX_SUFFIXES` | 4 | numeric suffixes recorded per command, 1..255 (later ones read as the default) |
 | `VIPER_SCPI_ERROR_QUEUE_SIZE` | 8 | error queue entries (2..255) |
 | `VIPER_SCPI_DOUBLE_DIGITS` | 15 | significant digits of `viper_scpi_result_double()` (1..17) |
 | `VIPER_SCPI_DEFAULT_MANUFACTURER` etc. | `VIPER`, `SCPI`, `0`, `0.1.0` | `*IDN?` fields when the configuration leaves them NULL |

@@ -143,6 +143,54 @@ static void test_existing_single_item_forms_still_work(void)
     CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
 }
 
+static viper_scpi_result_t deep_leaf(viper_scpi_context_t *ctx)
+{
+    for (size_t i = 0; i < 6; i++) {
+        viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, i, 0));
+    }
+    return VIPER_SCPI_RES_OK;
+}
+
+static const viper_scpi_node_t deep_e[] = { { "LEAF", deep_leaf, NULL }, VIPER_SCPI_NODE_END };
+static const viper_scpi_node_t deep_root[] = {
+    { "A#:B#:C#:D#:E#", NULL, deep_e },
+    { "P#:Q#:R#:S#[:T#]", deep_leaf, NULL },
+    VIPER_SCPI_NODE_END
+};
+
+static char deep_out[128];
+static size_t deep_len;
+
+static size_t deep_write(void *user, const char *data, size_t len)
+{
+    (void)user;
+    if (deep_len + len < sizeof deep_out) {
+        memcpy(deep_out + deep_len, data, len);
+        deep_len += len;
+        deep_out[deep_len] = '\0';
+    }
+    return len;
+}
+
+/* A path with more '#' mnemonics than VIPER_SCPI_MAX_SUFFIXES still
+ * matches; only the first ones are recorded, the others read as the
+ * default. */
+static void test_more_suffixes_than_recorded(void)
+{
+    static const viper_scpi_config_t cfg = { .root = deep_root, .write = deep_write };
+    viper_scpi_context_t c;
+
+    (void)viper_scpi_init(&c, &cfg);
+    viper_scpi_input_buffer(&c, "A1:B2:C3:D4:E5:LEAF?\n", 21);
+    CHECK_INT(viper_scpi_error_pop(&c), 0);
+    CHECK_STR(deep_out, VIPER_SCPI_MAX_SUFFIXES == 4 ? "1,2,3,4,0,0\n" : deep_out);
+    deep_len = 0;
+    deep_out[0] = '\0';
+    viper_scpi_input_buffer(&c, "P1:Q2:R3:S4?\n", 13);
+    CHECK_INT(viper_scpi_error_pop(&c), 0);
+    CHECK_STR(deep_out, VIPER_SCPI_MAX_SUFFIXES == 4 ? "1,2,3,4,0,0\n" : deep_out);
+}
+
 int main(void)
 {
     test_optional_middle();
@@ -152,5 +200,6 @@ int main(void)
     test_relative_path_after_multi_mnemonic();
     test_malformed_patterns_never_match();
     test_existing_single_item_forms_still_work();
+    test_more_suffixes_than_recorded();
     return test_summary("test_patterns");
 }
