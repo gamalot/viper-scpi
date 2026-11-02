@@ -6,6 +6,19 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-02
+
+API cleanup from the rest of the code review: one type for error numbers,
+one spec-driven parser for range-checked numbers (with an integer-only
+variant that takes units), a smaller context and a shallower stack.
+
+Upgrading from 0.3: callbacks declared with `viper_scpi_result_t` compile
+unchanged. Drop any use of `VIPER_SCPI_RES_QUEUED` (`return
+viper_scpi_fail(...)` keeps working), and replace each removed `*_kw`,
+`*_kw_ex` or `*_unit*` call with a const spec and `viper_scpi_param_number()`
+or `viper_scpi_param_integer()`. Add `src/scpi_units.c` if you list the
+sources yourself.
+
 ### Breaking
 
 - `viper_scpi_result_t` is an `int16_t` instead of an enum, and it is the one
@@ -277,7 +290,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/gamalot/viper-scpi/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gamalot/viper-scpi/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gamalot/viper-scpi/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gamalot/viper-scpi/compare/v0.1.0...v0.2.0
