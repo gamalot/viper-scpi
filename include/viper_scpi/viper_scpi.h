@@ -284,38 +284,38 @@ void viper_scpi_result_text(viper_scpi_context_t *ctx, const char *str);
 
 /* ---- Error queue ---------------------------------------------------- */
 
-/** Append an error (also sets the matching ESR bit). Overflow -> -350.
- *  SCPI error numbers are -32768..32767; a code outside that range is a
- *  programming error and is queued as -200. */
-void viper_scpi_error_push(viper_scpi_context_t *ctx, int code);
+/** Append an error (also sets the matching ESR bit). Overflow -> -350. */
+void viper_scpi_error_push(viper_scpi_context_t *ctx, viper_scpi_result_t code);
 /**
  * viper_scpi_error_push() with detail that SYSTem:ERRor? appends to the
  * message: -222,"Data out of range;VOLT 31 exceeds 30". @p info is not copied
  * and must stay valid until the error is read (static storage, a string
  * literal). If the queue is full the entry becomes -350 without detail.
  */
-void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char *info);
+void viper_scpi_error_push_info(viper_scpi_context_t *ctx, viper_scpi_result_t code,
+                                const char *info);
 /**
  * Queue @p code with optional @p detail (as viper_scpi_error_push_info()) and
- * return VIPER_SCPI_RES_QUEUED, so a callback or stream handler can fail
- * with detail in one statement without the error being queued twice:
+ * return @p code, so a callback or stream handler fails with detail in one
+ * statement:
  *
  *     if (v > 30.0) return viper_scpi_fail(ctx, -222, "VOLT max is 30 V");
  *
- * Also takes device-defined codes (101, ...) as a plain int.
+ * The library does not queue the returned code a second time.
  */
-viper_scpi_result_t viper_scpi_fail(viper_scpi_context_t *ctx, int code, const char *detail);
+viper_scpi_result_t viper_scpi_fail(viper_scpi_context_t *ctx, viper_scpi_result_t code,
+                                    const char *detail);
 /** Remove the oldest error; returns 0 if the queue is empty. */
-int viper_scpi_error_pop(viper_scpi_context_t *ctx);
+viper_scpi_result_t viper_scpi_error_pop(viper_scpi_context_t *ctx);
 /** viper_scpi_error_pop() that also returns the entry's detail (or NULL). */
-int viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info);
+viper_scpi_result_t viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info);
 size_t viper_scpi_error_count(const viper_scpi_context_t *ctx);
 void viper_scpi_error_clear(viper_scpi_context_t *ctx);
 /** Built-in message text for @p code ("Device-specific error" if unknown). */
-const char *viper_scpi_error_message(int code);
+const char *viper_scpi_error_message(viper_scpi_result_t code);
 /** Message text for @p code: the configuration's error_texts first, then the
  *  built-in texts. */
-const char *viper_scpi_error_text(const viper_scpi_context_t *ctx, int code);
+const char *viper_scpi_error_text(const viper_scpi_context_t *ctx, viper_scpi_result_t code);
 
 /* ---- Output queue (message-exchange model, cfg->output_buffer) ------ */
 

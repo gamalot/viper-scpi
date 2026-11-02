@@ -448,9 +448,9 @@ A callback runs when its node is the last mnemonic of a command. Inside it:
   with `,`; responses of different commands on a line with `;`; the line ends
   with `\n`.
 - Return a non-zero `viper_scpi_result_t` to push that error onto the queue.
-  `return viper_scpi_fail(ctx, code, "detail");` queues a code (device codes
-  such as 101 too) with detail text, once. Use `viper_scpi_error_push()` for
-  additional errors.
+  It is an `int16_t` error number, so device codes return as they are
+  (`return 101;`). `return viper_scpi_fail(ctx, code, "detail");` adds detail
+  text, queued once. Use `viper_scpi_error_push()` for additional errors.
 
 ## Error texts and detail
 

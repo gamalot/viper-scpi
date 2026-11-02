@@ -6,6 +6,25 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Breaking
+
+- `viper_scpi_result_t` is an `int16_t` instead of an enum, and it is the one
+  type of every error number in the API: callbacks and stream handlers
+  return it, `viper_scpi_error_push()`, `_push_info()`, `viper_scpi_fail()`,
+  `viper_scpi_error_message()` and `viper_scpi_error_text()` take it,
+  `viper_scpi_error_pop()` and `_pop_info()` return it, and
+  `viper_scpi_error_text_t.code` holds it. A device-defined code is returned
+  as it is (`return 101;`), which did not compile in C++. Code that declares
+  its callbacks with `viper_scpi_result_t` compiles unchanged; code that
+  stored error numbers in an `int` and passes them on may now see
+  `-Wconversion` warnings. The `VIPER_SCPI_RES_*` names remain, as constants.
+- `VIPER_SCPI_RES_QUEUED` is gone. `viper_scpi_fail()` returns the code it
+  queued, and the library does not queue it again when the callback returns
+  it. The constant (0x10000) did not fit an `int`, which made the header
+  ill-formed on 16-bit-int targets (AVR, MSP430).
+- Codes outside -32768..32767 can no longer be passed (they were queued as
+  -200); the type rules them out.
+
 ### Added
 
 - `viper_scpi_param_number()` and `viper_scpi_param_integer()`: one const
@@ -23,7 +42,7 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
   for optional ones that are consumed: the worst-case stack fell from about
   1960 to about 1190 bytes on Cortex-M0+, a typical command from about 630 to
   550.
-- The context is 352 bytes on Cortex-M instead of 444 (424 instead of 664 on
+- The context is 356 bytes on Cortex-M instead of 444 (424 instead of 664 on
   a 64-bit host): parameter and path tokens are 16-bit offsets into the line
   buffer, the path holds one entry fewer, the copy of `cfg.user_data` is gone
   and the fields used for every input byte come first. The library code is
@@ -32,6 +51,7 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 - The unit tables and prefix handling moved from `scpi_float.c` to the new
   `src/scpi_units.c` (add it if you list the sources yourself); the CI link
   test checks that integer parsing with units links no soft-float helpers.
+- A CI step builds and runs a C++ program against the headers.
 
 ## [0.3.0] - 2026-11-02
 

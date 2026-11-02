@@ -14,8 +14,17 @@
 extern "C" {
 #endif
 
-/** Result codes. Negative values are IEEE 488.2 / SCPI error numbers. */
-typedef enum {
+/**
+ * An error number, and the result of callbacks and parameter functions:
+ * 0 for success, a negative IEEE 488.2 / SCPI error number, or a positive
+ * device-defined one (SCPI-99 21.8.2). The one type of every error code in
+ * the API, from a callback's return value to the error queue, sized to the
+ * range of SCPI error numbers (-32768..32767).
+ */
+typedef int16_t viper_scpi_result_t;
+
+/** Error numbers the library uses, for viper_scpi_result_t. */
+enum {
     VIPER_SCPI_RES_OK = 0,
     VIPER_SCPI_RES_ERR_UNKNOWN_CMD = -100,      /**< Command error */
     VIPER_SCPI_RES_ERR_SYNTAX = -102,           /**< Syntax error */
@@ -37,11 +46,8 @@ typedef enum {
     VIPER_SCPI_RES_ERR_INPUT_OVERRUN = -363,    /**< Input buffer overrun */
     VIPER_SCPI_RES_ERR_QUERY = -400,            /**< Query error */
     VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED = -410,/**< New message over an unread reply */
-    VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED = -420,/**< Read requested, nothing to send */
-    /** Returned by viper_scpi_fail(): the error is already in the queue.
-     *  Outside the range of SCPI error numbers. */
-    VIPER_SCPI_RES_QUEUED = 0x10000
-} viper_scpi_result_t;
+    VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED = -420 /**< Read requested, nothing to send */
+};
 
 /** Event Status Register bits (IEEE 488.2). */
 enum {
@@ -67,8 +73,8 @@ enum {
 
 typedef struct viper_scpi_context_s viper_scpi_context_t;
 
-/** Command callback. A non-zero return value is pushed to the error queue
- *  (except VIPER_SCPI_RES_QUEUED, see viper_scpi_fail()). */
+/** Command callback. A non-zero return value is pushed to the error queue,
+ *  unless the callback already queued it with viper_scpi_fail(). */
 typedef viper_scpi_result_t (*viper_scpi_cmd_callback_t)(viper_scpi_context_t *ctx);
 
 /**
@@ -198,9 +204,9 @@ typedef enum {
 /**
  * Receives a definite-length block in chunks, for blocks larger than the line
  * buffer (MMEM:DATA, TRAC:DATA). A non-zero return from BEGIN, DATA or END is
- * pushed to the error queue; after one from BEGIN or DATA the rest of the
- * block is skipped and the handler is not called again for it. ABORT's return
- * value is ignored.
+ * pushed to the error queue (unless viper_scpi_fail() queued it); after one
+ * from BEGIN or DATA the rest of the block is skipped and the handler is not
+ * called again for it. ABORT's return value is ignored.
  */
 typedef viper_scpi_result_t (*viper_scpi_block_stream_t)(viper_scpi_context_t *ctx,
                                                          viper_scpi_stream_event_t event,
@@ -228,7 +234,7 @@ enum {
 
 /** Instrument error text; tables end with a NULL text. */
 typedef struct {
-    int16_t code;      /**< e.g. 100..32767 for device-defined errors */
+    viper_scpi_result_t code; /**< e.g. 100..32767 for device-defined errors */
     const char *text;
 } viper_scpi_error_text_t;
 
@@ -310,6 +316,8 @@ struct viper_scpi_context_s {
     uint16_t hash_pos;     /**< Buffer offset of the '#' of the current block */
     uint16_t exec_pos;     /**< Resume point of a suspended message; while
                                 streaming, the end of the streamed header */
+    viper_scpi_result_t failed; /**< Code viper_scpi_fail() queued during the
+                                     running callback, not to be queued again */
     uint8_t wait;          /**< WAIT_* : why execution is suspended */
     uint8_t overflow;      /**< The message is dropped (overrun, refused) */
     uint8_t skip_unit;     /**< Rest of the unit is lexed but not kept */
@@ -343,7 +351,7 @@ struct viper_scpi_context_s {
     viper_scpi_token_t params[VIPER_SCPI_MAX_PARAMS];
     viper_scpi_token_t prefix[VIPER_SCPI_PREFIX_SIZE]; /**< Relative-path base */
     int32_t suffix[VIPER_SCPI_MAX_SUFFIXES]; /**< -1 = suffix omitted */
-    int16_t err_queue[VIPER_SCPI_ERROR_QUEUE_SIZE];
+    viper_scpi_result_t err_queue[VIPER_SCPI_ERROR_QUEUE_SIZE];
     const char *err_info[VIPER_SCPI_ERROR_QUEUE_SIZE]; /**< Static detail or NULL */
     /* Output queue (message-exchange model): text with at most one generated
      * block spliced in at out_block_at; read order is

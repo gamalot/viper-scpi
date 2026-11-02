@@ -77,6 +77,15 @@ jobs:
                 -Iinclude -Isrc -Os -c src/*.c
             rm -f *.o
           done
+      - name: Use from C++
+        run: |
+          gcc -std=c99 -Os -Iinclude -Isrc -c src/*.c
+          for cxx in g++ clang++; do
+            $cxx -std=c++11 -Wall -Wextra -Wpedantic -Wconversion -Werror -Iinclude \
+                tests/cxx_check.cpp *.o -o cxx_check
+            ./cxx_check
+          done
+          rm -f *.o cxx_check
       - name: Check for dynamic allocation
         run: |
           gcc -std=c99 -Os -Iinclude -Isrc -c src/*.c

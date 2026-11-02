@@ -278,11 +278,29 @@ static viper_scpi_result_t cb_fail(viper_scpi_context_t *ctx)
     return viper_scpi_fail(ctx, 101, "relay K3 stuck");
 }
 
-/* viper_scpi_fail(): one entry with its detail, also for device codes;
- * an out-of-range code is not wrapped into a standard one. */
+/* Fails with detail, then returns another error: both are queued. */
+static viper_scpi_result_t cb_fail_other(viper_scpi_context_t *ctx)
+{
+    (void)viper_scpi_fail(ctx, -222, "first");
+    return VIPER_SCPI_RES_ERR_ILLEGAL_VALUE;
+}
+
+static viper_scpi_result_t cb_range(viper_scpi_context_t *ctx)
+{
+    (void)ctx;
+    return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+}
+
+/* viper_scpi_fail(): returns its code, which is then queued once with its
+ * detail, device codes included; only that code of that call is skipped. */
 static void test_fail(void)
 {
-    static const viper_scpi_node_t root[] = { { "RELay", cb_fail, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t root[] = {
+        { "RELay", cb_fail, NULL },
+        { "OTHer", cb_fail_other, NULL },
+        { "RANGe", cb_range, NULL },
+        VIPER_SCPI_NODE_END
+    };
     static const viper_scpi_config_t cfg = { .root = root };
     viper_scpi_context_t c;
     const char *info;
@@ -292,8 +310,22 @@ static void test_fail(void)
     CHECK_INT(viper_scpi_error_pop_info(&c, &info), 101);
     CHECK_STR(info, "relay K3 stuck");
     CHECK_INT(viper_scpi_error_count(&c), 0);
-    viper_scpi_error_push(&c, 40000);
-    CHECK_INT(viper_scpi_error_pop(&c), -200);
+
+    viper_scpi_input_buffer(&c, "OTH\n", 4);
+    CHECK_INT(viper_scpi_error_pop_info(&c, &info), -222);
+    CHECK_STR(info, "first");
+    CHECK_INT(viper_scpi_error_pop(&c), -224);
+    CHECK_INT(viper_scpi_error_count(&c), 0);
+
+    /* Called outside a callback it just queues; a later callback returning
+     * the same code is not mistaken for it. */
+    CHECK_INT(viper_scpi_fail(&c, -222, "front panel"), -222);
+    viper_scpi_input_buffer(&c, "RANG\n", 5);
+    CHECK_INT(viper_scpi_error_pop_info(&c, &info), -222);
+    CHECK_STR(info, "front panel");
+    CHECK_INT(viper_scpi_error_pop_info(&c, &info), -222);
+    CHECK(info == NULL);
+    CHECK_INT(viper_scpi_error_count(&c), 0);
 }
 
 int main(void)

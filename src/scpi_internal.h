@@ -78,6 +78,11 @@ viper_scpi_result_t viper_scpi_number_unit(const viper_scpi_unit_t *units, const
                                            size_t n, size_t *num,
                                            const viper_scpi_unit_t **unit, int *exp3);
 
+/** Queue what a callback or stream handler returned (nothing for 0), unless
+ *  it is the code viper_scpi_fail() queued during the call. Each caller sets
+ *  ctx->failed to 0 before the call and ends with this. */
+void viper_scpi_queue_result(viper_scpi_context_t *ctx, viper_scpi_result_t res);
+
 /** STATus subtree, hooked into the built-in root. */
 extern const viper_scpi_node_t viper_scpi_status_children[];
 

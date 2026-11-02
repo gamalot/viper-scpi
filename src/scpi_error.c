@@ -5,7 +5,7 @@
  * this size a search is not worth the code; the instrument's own texts are a
  * separate table (viper_scpi_config_t.error_texts). */
 static const struct {
-    int16_t code;
+    viper_scpi_result_t code;
     const char *text;
 } builtin_texts[] = {
     { 0, "No error" },
@@ -32,7 +32,7 @@ static const struct {
     { VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED, "Query UNTERMINATED" },
 };
 
-const char *viper_scpi_error_message(int code)
+const char *viper_scpi_error_message(viper_scpi_result_t code)
 {
     for (size_t i = 0; i < sizeof builtin_texts / sizeof builtin_texts[0]; i++) {
         if (builtin_texts[i].code == code) {
@@ -42,7 +42,7 @@ const char *viper_scpi_error_message(int code)
     return "Device-specific error";
 }
 
-const char *viper_scpi_error_text(const viper_scpi_context_t *ctx, int code)
+const char *viper_scpi_error_text(const viper_scpi_context_t *ctx, viper_scpi_result_t code)
 {
     for (const viper_scpi_error_text_t *t = ctx->cfg->error_texts; t != NULL && t->text != NULL;
          t++) {
@@ -59,7 +59,7 @@ void viper_scpi_event_set(viper_scpi_context_t *ctx, uint8_t mask)
     viper_scpi_srq_update(ctx);
 }
 
-static uint8_t esr_bit_for(int code)
+static uint8_t esr_bit_for(viper_scpi_result_t code)
 {
     if (code <= -100 && code >= -199) {
         return VIPER_SCPI_ESR_CME;
@@ -76,14 +76,11 @@ static uint8_t esr_bit_for(int code)
     return code > 0 ? VIPER_SCPI_ESR_DDE : 0;
 }
 
-void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char *info)
+void viper_scpi_error_push_info(viper_scpi_context_t *ctx, viper_scpi_result_t code,
+                                const char *info)
 {
     if (code == 0) {
         return;
-    }
-    if (code < -32768 || code > 32767) {
-        code = VIPER_SCPI_RES_ERR_EXECUTION; /* would not survive int16_t */
-        info = NULL;
     }
     viper_scpi_event_set(ctx, esr_bit_for(code));
 
@@ -95,27 +92,36 @@ void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char 
         ctx->esr = (uint8_t)(ctx->esr | VIPER_SCPI_ESR_DDE); /* -350 is a -3xx error */
     } else {
         size_t slot = ((size_t)ctx->err_head + ctx->err_count) % VIPER_SCPI_ERROR_QUEUE_SIZE;
-        ctx->err_queue[slot] = (int16_t)code;
+        ctx->err_queue[slot] = code;
         ctx->err_info[slot] = info;
         ctx->err_count++;
     }
     viper_scpi_srq_update(ctx); /* EAV, and ESB through the ESR bit */
 }
 
-void viper_scpi_error_push(viper_scpi_context_t *ctx, int code)
+void viper_scpi_error_push(viper_scpi_context_t *ctx, viper_scpi_result_t code)
 {
     viper_scpi_error_push_info(ctx, code, NULL);
 }
 
-viper_scpi_result_t viper_scpi_fail(viper_scpi_context_t *ctx, int code, const char *detail)
+viper_scpi_result_t viper_scpi_fail(viper_scpi_context_t *ctx, viper_scpi_result_t code,
+                                    const char *detail)
 {
     viper_scpi_error_push_info(ctx, code, detail);
-    return VIPER_SCPI_RES_QUEUED;
+    ctx->failed = code; /* the caller returns it: not queued again */
+    return code;
 }
 
-int viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info)
+void viper_scpi_queue_result(viper_scpi_context_t *ctx, viper_scpi_result_t res)
 {
-    int code;
+    if (res != ctx->failed) {
+        viper_scpi_error_push(ctx, res);
+    }
+}
+
+viper_scpi_result_t viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info)
+{
+    viper_scpi_result_t code;
 
     if (info != NULL) {
         *info = NULL;
@@ -133,7 +139,7 @@ int viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info)
     return code;
 }
 
-int viper_scpi_error_pop(viper_scpi_context_t *ctx)
+viper_scpi_result_t viper_scpi_error_pop(viper_scpi_context_t *ctx)
 {
     return viper_scpi_error_pop_info(ctx, NULL);
 }
@@ -239,7 +245,7 @@ void viper_scpi_rqs_delivered(viper_scpi_context_t *ctx)
 
 static viper_scpi_result_t cmd_syst_err_next(viper_scpi_context_t *ctx)
 {
-    int code;
+    viper_scpi_result_t code;
     const char *info;
     viper_scpi_result_t res = viper_scpi_expect(ctx, VIPER_SCPI_NO_FORM, 0);
 

@@ -121,11 +121,28 @@ if (v > 30.0) {
 }
 ```
 
-`viper_scpi_fail()` queues the code with its detail and returns
-`VIPER_SCPI_RES_QUEUED`, which tells the library the error is already queued.
-It takes device-defined codes as a plain `int` (`viper_scpi_fail(ctx, 101,
-"relay K3")`), and works in stream handlers too, where it stops the block.
-Codes outside -32768..32767 are queued as -200.
+`viper_scpi_fail()` queues the code with its detail and returns the code;
+the library recognises it on the way out and does not queue it a second time.
+It works in stream handlers too, where it stops the block, and outside a
+callback, where it simply queues.
+
+## One type for every error number
+
+`viper_scpi_result_t` is an `int16_t`: 0 for success, the negative standard
+numbers, and positive device-defined ones (SCPI-99 21.8.2), all of
+-32768..32767. Callbacks return it, `viper_scpi_error_push()` takes it,
+`viper_scpi_error_pop()` returns it and `viper_scpi_error_text_t.code` holds
+it, so a device code needs no cast anywhere, in C++ either:
+
+```c
+static viper_scpi_result_t relay(viper_scpi_context_t *ctx)
+{
+    if (relay_stuck()) {
+        return 101;                /* "Relay stuck", from my_errors */
+    }
+    return VIPER_SCPI_RES_OK;
+}
+```
 
 `SYSTem:ERRor?` then answers `-222,"Data out of range;VOLT max is 30 V"`. The
 detail string is **not copied**: pass a string literal or other static storage,
