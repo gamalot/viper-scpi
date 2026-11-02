@@ -54,45 +54,7 @@ void viper_scpi_result_double(viper_scpi_context_t *ctx, double value)
 
 /* ---- Parameters ---------------------------------------------------------------- */
 
-/* Accepts [+-] digits [. digits] [E [+-] digits] with at least one mantissa digit. */
-static bool valid_float(const char *s, size_t n)
-{
-    size_t i = 0;
-    size_t digits = 0;
-
-    if (i < n && (s[i] == '+' || s[i] == '-')) {
-        i++;
-    }
-    while (i < n && s[i] >= '0' && s[i] <= '9') {
-        i++;
-        digits++;
-    }
-    if (i < n && s[i] == '.') {
-        i++;
-        while (i < n && s[i] >= '0' && s[i] <= '9') {
-            i++;
-            digits++;
-        }
-    }
-    if (digits == 0) {
-        return false;
-    }
-    if (i < n && viper_scpi_upper(s[i]) == 'E') {
-        size_t exp_digits = 0;
-        i++;
-        if (i < n && (s[i] == '+' || s[i] == '-')) {
-            i++;
-        }
-        while (i < n && s[i] >= '0' && s[i] <= '9') {
-            i++;
-            exp_digits++;
-        }
-        if (exp_digits == 0) {
-            return false;
-        }
-    }
-    return i == n;
-}
+static size_t scan_number(const char *s, size_t n);
 
 /*
  * strtod() of the NUL-terminated number text @p tmp (@p n characters, already
@@ -156,7 +118,8 @@ viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, siz
     if (special_double(s, n, out)) {
         return VIPER_SCPI_RES_OK;
     }
-    if (n >= sizeof tmp || !valid_float(s, n)) {
+    /* The whole token must be a number (scan_number() stops before a unit). */
+    if (n >= sizeof tmp || scan_number(s, n) != n) {
         return VIPER_SCPI_RES_ERR_DATA_TYPE;
     }
     memcpy(tmp, s, n);

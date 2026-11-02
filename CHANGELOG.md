@@ -74,6 +74,9 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
   replies read `2,25`).
 - The overflow checks use `DBL_MAX` (a binary64 literal was out of range and
   never fired with a 32-bit `double`).
+- `viper_scpi_result_block_fill()` writes the full length into the block
+  header on 16-bit `size_t` targets (it wrote the length modulo 65536 and
+  then produced every byte, so the host lost framing).
 - The compile-time limits are checked: a value outside the documented range
   (for example `VIPER_SCPI_ERROR_QUEUE_SIZE` 256, which wrapped the queue
   count) is a compile error.
@@ -87,6 +90,12 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 ### Changed
 
 - The context grew by 4 bytes on Cortex-M (440).
+- Header resolution rejects a sibling whose required mnemonic starts with a
+  different letter before parsing its pattern, and the relative-path
+  fallback no longer copies the path (which linked `memmove` into every
+  image).
+- The documented stack figures were wrong: the worst case is about 2 KB, not
+  1.4 KB (docs/configuration.md).
 
 ## [0.2.1] - 2026-11-01
 

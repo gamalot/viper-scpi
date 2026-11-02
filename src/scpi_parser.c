@@ -178,8 +178,9 @@ void viper_scpi_result_bool(viper_scpi_context_t *ctx, bool value)
 }
 
 /* Writes the separator and "#<n><length>"; false if the length needs more
- * than the nine digits a definite-length header can carry. */
-static bool block_header(viper_scpi_context_t *ctx, size_t len)
+ * than the nine digits a definite-length header can carry. The length is a
+ * uint32_t, not a size_t, so that it is not cut on 16-bit targets. */
+static bool block_header(viper_scpi_context_t *ctx, uint32_t len)
 {
     char hdr[12];
     char *end = hdr + sizeof hdr;
@@ -190,7 +191,7 @@ static bool block_header(viper_scpi_context_t *ctx, size_t len)
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
         return false;
     }
-    p = format_u32(end, (uint32_t)len);
+    p = format_u32(end, len);
     digits = (char)('0' + (end - p)); /* 1..9 */
     p -= 2;
     p[0] = '#';
@@ -202,7 +203,13 @@ static bool block_header(viper_scpi_context_t *ctx, size_t len)
 
 void viper_scpi_result_block(viper_scpi_context_t *ctx, const void *data, size_t len)
 {
-    if (block_header(ctx, len)) {
+#if SIZE_MAX > 999999999u
+    if (len > 999999999u) {
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+        return;
+    }
+#endif
+    if (block_header(ctx, (uint32_t)len)) {
         emit(ctx, (const char *)data, len);
     }
 }
@@ -483,6 +490,18 @@ static const viper_scpi_node_t *match_items(viper_scpi_context_t *ctx,
     uint8_t saved = ctx->suffix_count;
     const viper_scpi_node_t *hit;
     int32_t sfx;
+    const char *q = p;
+
+    /* Quick reject before the pattern is parsed: a required mnemonic has to
+     * match the next header mnemonic, so their first letters must agree.
+     * Most siblings fail here. */
+    while (*q == ':') {
+        q++;
+    }
+    if (nseg > 0 && *q != '\0' && *q != '[' &&
+        viper_scpi_upper(*q) != viper_scpi_upper(segs[0].str[0])) {
+        return NULL;
+    }
 
     switch (viper_scpi_pattern_next(&p, &it)) {
     case 0:
@@ -540,6 +559,17 @@ static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
     return NULL;
 }
 
+/* The user tree first, then the built-in one (which it may override). */
+static const viper_scpi_node_t *resolve_roots(viper_scpi_context_t *ctx, const segment_t *segs,
+                                              size_t nseg)
+{
+    const viper_scpi_node_t *node;
+
+    ctx->suffix_count = 0; /* a failed resolve() leaves it as it found it */
+    node = resolve(ctx, ctx->cfg->root, segs, nseg, 0);
+    return (node != NULL) ? node : resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0);
+}
+
 /* Resolves a tree header to its node, recording the path for relative
  * headers, without running the callback. */
 static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char *h, size_t hlen,
@@ -550,9 +580,8 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
     size_t pos = 0;
     size_t st;
     size_t npre;
+    size_t first = 0; /* segs[first..] is the resolved path */
     const viper_scpi_node_t *node;
-
-    ctx->suffix_count = 0;
 
     /* A leading ':' is absolute; otherwise the header is appended to the path
      * of the previous command without its last mnemonic (SCPI 6.2.1). */
@@ -595,32 +624,22 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
         }
     }
 
-    node = resolve(ctx, ctx->cfg->root, segs, nseg, 0);
-    if (node == NULL) {
-        ctx->suffix_count = 0;
-        node = resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0);
-    }
+    node = resolve_roots(ctx, segs, nseg);
     if (node == NULL && npre > 0 &&
         (ctx->cfg->options & VIPER_SCPI_OPT_RELATIVE_FALLBACK) != 0) {
         /* Lenient: retry the header as if it had a leading ':'. */
-        nseg -= npre;
-        memmove(segs, segs + npre, nseg * sizeof segs[0]);
-        ctx->suffix_count = 0;
-        node = resolve(ctx, ctx->cfg->root, segs, nseg, 0);
-        if (node == NULL) {
-            ctx->suffix_count = 0;
-            node = resolve(ctx, viper_scpi_builtin_root, segs, nseg, 0);
-        }
+        node = resolve_roots(ctx, segs + npre, nseg - npre);
+        first = npre;
     }
     if (node == NULL) {
         return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
 
     /* Remember everything but the last mnemonic for relative headers. */
-    for (size_t i = 0; i + 1 < nseg; i++) {
-        ctx->prefix[i] = segs[i];
+    for (size_t i = 0; first + i + 1 < nseg; i++) {
+        ctx->prefix[i] = segs[first + i];
     }
-    ctx->prefix_count = (uint8_t)(nseg - 1);
+    ctx->prefix_count = (uint8_t)(nseg - first - 1);
     *out = node;
     return VIPER_SCPI_RES_OK;
 }
@@ -1239,7 +1258,7 @@ size_t viper_scpi_input_until_busy(viper_scpi_context_t *ctx, const char *data, 
             /* Hand streamed block data over in as large a piece as arrived. */
             size_t k = len - i;
             if (k > ctx->block_remaining) {
-                k = ctx->block_remaining;
+                k = (size_t)ctx->block_remaining; /* fits: it is below k */
             }
             stream_data(ctx, data + i, k);
             i += k;
