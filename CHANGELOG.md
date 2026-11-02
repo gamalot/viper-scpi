@@ -6,6 +6,28 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-02
+
+Fixes from a full code review, and API additions. The API is source
+compatible with 0.2.x; a few behaviours change to follow IEEE 488.2 and
+SCPI-99, marked **Breaking** below.
+
+### Breaking (behaviour)
+
+- Integer parameters accept decimal numbers and round them (`COUNT 1.5` is
+  2, was -104); booleans accept a number (non-zero is ON).
+- CR, NUL and the other control bytes are white space instead of being
+  dropped (`VOLT<CR>5` sets 5; `VOLT 1<CR>2` is -104, was 12).
+- An incomplete definite block (`#1;`, or a message ending in its length
+  digits) is -161 instead of text passed to the command.
+- `*ESE`/`*SRE` with a second parameter are -108 instead of using the first.
+- A relative header after a streamed command inherits its path instead of
+  resolving from the root.
+- Built-in commands report a wrong form before surplus parameters
+  (`SYST:VERS 5` is -113, was -108).
+- In the message-exchange model a LF inside an indefinite `#0` block is data.
+- A short `write` ends the response message with -321.
+
 ### Fixed
 
 - Input framing is decided in one place for every byte, also for bytes that
@@ -200,7 +222,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/gamalot/viper-scpi/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gamalot/viper-scpi/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gamalot/viper-scpi/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gamalot/viper-scpi/releases/tag/v0.1.0

@@ -18,9 +18,9 @@ extern "C" {
 
 /* Library version; CMakeLists.txt checks that project(VERSION) matches. */
 #define VIPER_SCPI_VERSION_MAJOR 0
-#define VIPER_SCPI_VERSION_MINOR 2
-#define VIPER_SCPI_VERSION_PATCH 1
-#define VIPER_SCPI_VERSION_STRING "0.2.1"
+#define VIPER_SCPI_VERSION_MINOR 3
+#define VIPER_SCPI_VERSION_PATCH 0
+#define VIPER_SCPI_VERSION_STRING "0.3.0"
 
 /* ---- Core ---------------------------------------------------------- */
 
