@@ -485,63 +485,83 @@ static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
 
 /*
  * Matches the remaining mnemonics of node @p n's pattern (starting at @p p)
- * against @p segs, trying to consume optional mnemonics first and to skip
- * them second. Once the pattern is used up, the remaining segments continue
- * in the node's children.
+ * against @p segs; once the pattern is used up, the remaining segments
+ * continue in the node's children. Required mnemonics are matched in a loop,
+ * in this one stack frame: they have no alternative to backtrack to. Only an
+ * optional mnemonic that could be consumed recurses, to try consuming it
+ * first and skipping it second. Restores ctx->suffix_count on failure.
  */
 static const viper_scpi_node_t *match_items(viper_scpi_context_t *ctx,
                                             const viper_scpi_node_t *n, const char *p,
                                             const segment_t *segs, size_t nseg, unsigned depth)
 {
-    viper_scpi_pattern_item_t it;
     uint8_t saved = ctx->suffix_count;
-    const viper_scpi_node_t *hit;
-    int32_t sfx;
-    const char *q = p;
 
-    /* Quick reject before the pattern is parsed: a required mnemonic has to
-     * match the next header mnemonic, so their first letters must agree.
-     * Most siblings fail here. */
-    while (*q == ':') {
-        q++;
-    }
-    if (nseg > 0 && *q != '\0' && *q != '[' &&
-        viper_scpi_upper(*q) != viper_scpi_upper(segs[0].str[0])) {
-        return NULL;
-    }
+    for (;;) {
+        viper_scpi_pattern_item_t it;
+        const viper_scpi_node_t *hit;
+        int32_t sfx;
+        const char *q = p;
 
-    switch (viper_scpi_pattern_next(&p, &it)) {
-    case 0:
-        if (nseg == 0) {
-            return (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
+        /* Quick reject before the item is parsed: a required mnemonic has to
+         * match the next header mnemonic, so their first letters must agree.
+         * Most siblings fail here. */
+        while (*q == ':') {
+            q++;
         }
-        return resolve(ctx, n->children, segs, nseg, depth + 1);
-    case 1:
-        break;
-    default:
-        return NULL; /* malformed pattern */
-    }
+        if (nseg > 0 && *q != '\0' && *q != '[' &&
+            viper_scpi_upper(*q) != viper_scpi_upper(segs[0].str[0])) {
+            break;
+        }
 
-    if (nseg > 0 && viper_scpi_item_match(&it, segs[0].str, segs[0].len, &sfx)) {
-        if (it.has_suffix) {
-            suffix_push(ctx, sfx);
+        switch (viper_scpi_pattern_next(&p, &it)) {
+        case 0:
+            if (nseg == 0) {
+                hit = (n->callback != NULL) ? n : find_default(ctx, n->children, depth + 1);
+            } else {
+                hit = resolve(ctx, n->children, segs, nseg, depth + 1);
+            }
+            if (hit != NULL) {
+                return hit;
+            }
+            ctx->suffix_count = saved;
+            return NULL;
+        case 1:
+            break;
+        default:
+            ctx->suffix_count = saved;
+            return NULL; /* malformed pattern */
         }
-        hit = match_items(ctx, n, p, segs + 1, nseg - 1, depth);
-        if (hit != NULL) {
-            return hit;
+
+        if (nseg > 0 && viper_scpi_item_match(&it, segs[0].str, segs[0].len, &sfx)) {
+            if (!it.optional) {
+                if (it.has_suffix) {
+                    suffix_push(ctx, sfx);
+                }
+                segs++;
+                nseg--;
+                continue;
+            }
+            {
+                uint8_t mark = ctx->suffix_count;
+                if (it.has_suffix) {
+                    suffix_push(ctx, sfx);
+                }
+                hit = match_items(ctx, n, p, segs + 1, nseg - 1, depth);
+                if (hit != NULL) {
+                    return hit;
+                }
+                ctx->suffix_count = mark;
+            }
+        } else if (!it.optional) {
+            break;
         }
-        ctx->suffix_count = saved;
-    }
-    if (it.optional) {
+        /* Skip the optional mnemonic. */
         if (it.has_suffix) {
             suffix_push(ctx, -1);
         }
-        hit = match_items(ctx, n, p, segs, nseg, depth);
-        if (hit != NULL) {
-            return hit;
-        }
-        ctx->suffix_count = saved;
     }
+    ctx->suffix_count = saved;
     return NULL;
 }
 

@@ -6,6 +6,13 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Changed
+
+- Header resolution matches required mnemonics in a loop and recurses only
+  for optional ones that are consumed: the worst-case stack fell from about
+  1960 to about 1190 bytes on Cortex-M0+, a typical command from about 630 to
+  550.
+
 ## [0.3.0] - 2026-11-02
 
 Fixes from a full code review, and API additions. The API is source

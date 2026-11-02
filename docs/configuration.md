@@ -64,14 +64,15 @@ data (CI fails the build if it ever does).
 | `viper_scpi_context_t` on Cortex-M (32-bit) | 444 bytes |
 | `viper_scpi_context_t` on a 64-bit host | 664 bytes |
 | output buffer (message-exchange model) | `output_size`, your choice |
-| stack | about 0.6 KB for a typical three-level command, up to about 2 KB for a header of 8 mnemonics through optional nodes that finally fails to match, plus your callback's own use (see below) |
+| stack | about 0.55 KB for a typical command, up to about 1.2 KB for a header of 8 mnemonics that fails at the last one, plus your callback's own use (see below) |
 
 Stack figures were measured on an emulated Cortex-M0+ (arm-none-eabi-gcc
 13.2, `-Os`), from `viper_scpi_input_buffer()` down: `SYST:ERR?` needs about
-630 bytes; a header of 8 mnemonics through nodes such as `B[:Q2]` that fails
-at the last one needs about 1960, because tree resolution recurses with 56
-bytes for every mnemonic matched or skipped, 56 more at the end of every
-node's pattern, and 32 per tree level. The C library's `strtod`/`snprintf` add their own stack when
+550 bytes; a header of 8 mnemonics through nodes such as `B[:Q2]` that fails
+at the last one about 1190. Tree resolution costs 88 bytes per tree level
+(56 + 32, `-fstack-usage`) plus 56 for each optional mnemonic that is
+consumed (it may have to be skipped instead); required mnemonics are matched
+without recursion. The C library's `strtod`/`snprintf` add their own stack when
 doubles are used.
 
 The largest contributors are the line buffer (`VIPER_SCPI_BUFFER_SIZE`), the
