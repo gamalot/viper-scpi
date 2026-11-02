@@ -574,6 +574,34 @@ static void test_lone_hash_at_eom(void)
     CHECK_INT(viper_scpi_error_count(&q), 0);
 }
 
+/* A line of white space is not a message: it does not interrupt a reply. */
+static void test_blank_line_keeps_reply(void)
+{
+    char buf[64];
+    int reads;
+
+    q_setup();
+    q_send("*OPC?");
+    q_send(" \t\r");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "1\n");
+}
+
+/* An indefinite block ends at NL^END: with EOM framing a bare LF is data. */
+static void test_indefinite_block_keeps_lf(void)
+{
+    char buf[64];
+    int reads;
+
+    q_setup();
+    q_send("STR #0a\nb;*OPC?\n");
+    CHECK_INT(viper_scpi_error_pop(&q), -104);   /* STR wants a string... */
+    CHECK_INT(viper_scpi_error_count(&q), 0);    /* ...and nothing else ran */
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "");
+}
+
 int main(void)
 {
     test_queued_reply();
@@ -594,5 +622,7 @@ int main(void)
     test_serial_poll_rqs();
     test_newline_inside_string();
     test_lone_hash_at_eom();
+    test_blank_line_keeps_reply();
+    test_indefinite_block_keeps_lf();
     return test_summary("test_message");
 }

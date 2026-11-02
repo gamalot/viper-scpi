@@ -139,13 +139,13 @@ never a stack buffer.
 | -113 | Undefined header | no such command, or the wrong form (query/command) |
 | -114 | Header suffix out of range | (for your callbacks) |
 | -131 | Invalid suffix | unknown or disallowed unit |
-| -160 / -161 | Block data error / Invalid block data | a message ended inside a block (after its `#`, in its length or data); a lone `#` before `;`, `,` or whitespace |
+| -160 / -161 | Block data error / Invalid block data | a message ended inside a block (after its `#`, in its length or data); a lone `#` before `;`, `,` or whitespace; an incomplete definite block (`#1;`) |
 | -200 | Execution error | (for your use) |
 | -220 | Parameter error | invalid arguments to a parser (a programming error) |
 | -222 | Data out of range | a number outside its range |
 | -224 | Illegal parameter value | an unknown choice; NAN in a range |
 | -321 | Out of memory | a reply larger than `output_size` |
-| -350 | Queue overflow | the error queue was full |
+| -350 | Queue overflow | the error queue was full (sets DDE) |
 | -363 | Input buffer overrun | a message larger than `VIPER_SCPI_BUFFER_SIZE`; input while busy |
 | -400 | Query error | a second generated block in one reply |
 | -410 | Query INTERRUPTED | a new message over an unread reply |

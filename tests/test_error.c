@@ -217,6 +217,41 @@ static void test_error_info(void)
     CHECK_STR(dev_ask("SYST:ERR?"), "0,\"No error\"\n");
 }
 
+/* Overflow queues -350, a -3xx error: DDE is set for it. */
+static void test_overflow_sets_dde(void)
+{
+    fx_setup();
+    for (int i = 0; i < VIPER_SCPI_ERROR_QUEUE_SIZE; i++) {
+        viper_scpi_error_push(&g_ctx, -113);
+    }
+    fx_send("*ESR?");
+    fx_clear();
+    viper_scpi_error_push(&g_ctx, -113);
+    fx_send("*ESR?");
+    CHECK_STR(fx_out(), "40\n");                 /* CME | DDE */
+}
+
+/* Reading or clearing the queue from C is a status change like any other:
+ * a later rise from another source is still a new service request, and a
+ * request whose reason went away is not reported. */
+static void test_srq_edges_from_c(void)
+{
+    fx_setup();
+    fx_send("*ESE 64;*SRE 36");
+    fx_send("BOGUS");
+    CHECK(viper_scpi_take_service_request(&g_ctx));
+    viper_scpi_error_clear(&g_ctx);
+    viper_scpi_event_set(&g_ctx, VIPER_SCPI_ESR_URQ);
+    CHECK(viper_scpi_take_service_request(&g_ctx));
+
+    fx_setup();
+    fx_send("*CLS;*ESE 1;*SRE 32");
+    (void)viper_scpi_take_service_request(&g_ctx);
+    fx_send("*OPC;*ESR?");                        /* rises, then falls */
+    CHECK(!viper_scpi_take_service_request(&g_ctx));
+    CHECK_INT(viper_scpi_serial_poll(&g_ctx), 0);
+}
+
 int main(void)
 {
     test_queue_fifo();
@@ -230,5 +265,7 @@ int main(void)
     test_syst_misuse();
     test_device_texts();
     test_error_info();
+    test_overflow_sets_dde();
+    test_srq_edges_from_c();
     return test_summary("test_error");
 }

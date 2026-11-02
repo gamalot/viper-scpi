@@ -36,6 +36,10 @@ code usually points straight at the cause.
 **-420 Query UNTERMINATED** (message-exchange model)
 - The controller asked for a reply that does not exist: it read after a
   command that is not a query, or read twice. Your transport pushes this code.
+- It appears after `INIT;*OPC?`: the transport pushed it while the reply was
+  still being produced. Push it only if `viper_scpi_busy()` is false, and
+  otherwise answer the read once the reply is complete (see
+  [Transports](transports.md#message-exchange-model)).
 
 **-321 Out of memory**
 - A reply is larger than `output_size`. Increase it, or produce large replies
@@ -43,8 +47,10 @@ code usually points straight at the cause.
 
 **-161 Invalid block data**
 - The message ended (EOM, or LF on a stream transport) before a block had all
-  its declared bytes -- or right after the `#`. Check the length digits the host
-  computed; `#3100` announces 100 bytes.
+  its declared bytes -- or right after the `#` or inside its length digits.
+  Check the length digits the host computed; `#3100` announces 100 bytes.
+- A definite block that is not complete where its parameter ends (`#1;`,
+  `#25x`).
 - A parameter that is a bare `#` (`LED #`, `X #,1`): the host meant to send a
   block or a `#H` number and left out the rest.
 

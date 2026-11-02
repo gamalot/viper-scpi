@@ -100,9 +100,10 @@ Rules:
 | Anywhere else, an indefinite `#0` block, or a node not in the table | the ordinary line buffer (too large: -363) |
 | Message ends before the declared length | ABORT, then -161 |
 | `viper_scpi_device_clear()` or `viper_scpi_input_discard()` mid-block | ABORT, no error |
-| A parameter after the block (`#14abcd,5`) | ABORT, -108, the rest of that command skipped |
+| A parameter after the block (`#14abcd,5`) | ABORT, -108, the rest of that command skipped (a `;` in a string or block there does not end it) |
 | BEGIN or DATA returns an error | queued; the rest of the block is skipped without further calls |
-| Commands after the streamed one (`MMEM:DATA ...;*OPC?`) | run normally, starting from the root path |
+| Commands after the streamed one (`MMEM:DATA ...;*OPC?`) | run normally, with the streamed command's path for relative headers |
+| A declared length above `SIZE_MAX` (16-bit `size_t`, e.g. MSP430, AVR) | -222, the block is skipped: BEGIN could not report its length |
 | END writes results | allowed; readable once the whole message is done |
 
 The parameters before the block (`'name'` above) can be read during BEGIN,

@@ -62,8 +62,11 @@ While a message is suspended:
 
 - `viper_scpi_busy()` is true and **input is refused**. The transport should
   hold the controller off: USBTMC NAKs bulk-OUT, a UART deasserts RTS or
-  buffers. Bytes fed anyway are dropped and reported as -363 at their message
-  end.
+  buffers, or keeps them in its receive ring. Bytes fed anyway are refused:
+  the message they belong to is dropped whole -- also if the suspension ends
+  before its last byte -- and reported as -363 at its end.
+  `viper_scpi_input_until_busy()` feeds a chunk only up to the message that
+  suspends and returns how many bytes it took, so the rest can be fed later.
 - In the message-exchange model the response is not readable yet (MAV clear;
   `viper_scpi_output_read()` returns nothing), because the response message is
   not complete. In the stream model, responses produced before the suspension

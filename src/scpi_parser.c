@@ -50,13 +50,19 @@ static void emit(viper_scpi_context_t *ctx, const char *s, size_t n)
     ctx->out_len += n;
 }
 
+/* The output queue holds response bytes, complete or not. */
+bool viper_scpi_output_queued(const viper_scpi_context_t *ctx)
+{
+    return ctx->out_rd < ctx->out_len ||
+           (ctx->out_block_active && ctx->out_block_done < ctx->out_block_total);
+}
+
 bool viper_scpi_output_pending(const viper_scpi_context_t *ctx)
 {
     if (ctx->wait != VIPER_SCPI_WAIT_NONE || ctx->msg_started) {
         return false; /* the response message is not complete yet */
     }
-    return ctx->out_rd < ctx->out_len ||
-           (ctx->out_block_active && ctx->out_block_done < ctx->out_block_total);
+    return viper_scpi_output_queued(ctx);
 }
 
 size_t viper_scpi_output_read(viper_scpi_context_t *ctx, uint8_t *dst, size_t max, bool *end)
@@ -105,6 +111,10 @@ size_t viper_scpi_output_read(viper_scpi_context_t *ctx, uint8_t *dst, size_t ma
 void viper_scpi_output_discard(viper_scpi_context_t *ctx)
 {
     output_reset(ctx);
+    /* Whatever a still-executing (suspended) message writes next starts a
+     * new response message, without a leading separator. */
+    ctx->line_has_output = 0;
+    ctx->unit_has_output = 0;
     viper_scpi_srq_update(ctx);
 }
 
@@ -290,13 +300,19 @@ viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx)
 
 typedef viper_scpi_token_t segment_t;
 
-/* True if a block starts at p[i]: '#' at the start of a parameter. */
+/* True if a parameter, and so possibly a block, can start after @p prev.
+ * The input state machine applies the same rule to ctx->last, with 0 for the
+ * start of a message. */
+static bool param_boundary(char prev)
+{
+    return viper_scpi_is_space(prev) || prev == ',';
+}
+
+/* Length of the block starting at p[i] ('#' at the start of a parameter),
+ * or 0. */
 static size_t block_at(const char *p, size_t i, size_t n)
 {
-    if (p[i] != '#' || i == 0) {
-        return 0;
-    }
-    if (p[i - 1] != ' ' && p[i - 1] != '\t' && p[i - 1] != ',') {
+    if (p[i] != '#' || (i > 0 && !param_boundary(p[i - 1]))) {
         return 0;
     }
     return viper_scpi_block_span(p + i, n - i);
@@ -319,6 +335,7 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
         size_t te;
         size_t span;
         char quote = 0;
+        unsigned depth = 0;
 
         while (i < n && viper_scpi_is_space(p[i])) {
             i++;
@@ -332,14 +349,22 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
             i += span; /* raw block bytes are kept verbatim */
             te = i;
         } else {
+            /* A ',' inside quotes or inside parentheses (expression data
+             * such as the channel list "(@1,2,3)", IEEE 488.2 7.7.7) does
+             * not separate parameters. */
             for (; i < n; i++) {
+                char c = p[i];
                 if (quote != 0) {
-                    if (p[i] == quote) {
+                    if (c == quote) {
                         quote = 0;
                     }
-                } else if (p[i] == '"' || p[i] == '\'') {
-                    quote = p[i];
-                } else if (p[i] == ',') {
+                } else if (c == '"' || c == '\'') {
+                    quote = c;
+                } else if (c == '(') {
+                    depth++;
+                } else if (c == ')' && depth > 0) {
+                    depth--;
+                } else if (c == ',' && depth == 0) {
                     break;
                 }
             }
@@ -353,12 +378,14 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
             if (te == ts) {
                 return VIPER_SCPI_RES_ERR_SYNTAX; /* empty parameter */
             }
-            if (p[ts] == '#' && (te == ts + 1 || viper_scpi_is_space(p[ts + 1]))) {
+            if (p[ts] == '#' && (te == ts + 1 || viper_scpi_is_space(p[ts + 1]) ||
+                                 (p[ts + 1] >= '1' && p[ts + 1] <= '9'))) {
                 /* '#' begins only non-decimal numbers (#H/#Q/#B, IEEE 488.2
-                 * 7.7.4) and blocks (#<digit>, 7.7.6); a '#' followed by a
-                 * separator or whitespace begins neither. Reported like a
-                 * block cut short at the '#', so the code does not depend on
-                 * whether the message happened to end there. */
+                 * 7.7.4) and blocks (#<digit>, 7.7.6). A '#' followed by a
+                 * separator or whitespace begins neither, and a definite
+                 * block that is not complete here ("#1", "#25x") was cut
+                 * short. Both are reported as a block cut short, so the code
+                 * does not depend on where the message happened to end. */
                 return VIPER_SCPI_RES_ERR_INVALID_BLOCK;
             }
         }
@@ -647,23 +674,47 @@ enum {
     BLK_NONE, BLK_HASH, BLK_LENGTH, BLK_DATA, BLK_INDEFINITE,
     BLK_STREAM,       /* block bytes go to ctx->stream */
     BLK_SKIP,         /* block bytes are dropped (handler failed) */
-    BLK_TAIL,         /* after a streamed block, until the unit ends */
-    BLK_TAIL_DISCARD  /* rest of a unit that had a parameter after the block */
+    BLK_TAIL          /* after a streamed block, until the unit ends */
 };
+
+/*
+ * Framing state of the message being received: where it ends, and whether
+ * its bytes are kept. It is separate from the line buffer because a message
+ * may arrive (and be refused) while the previous one is still executing.
+ */
+static void framing_reset(viper_scpi_context_t *ctx)
+{
+    ctx->overflow = 0;
+    ctx->skip_unit = 0;
+    ctx->block_state = BLK_NONE;
+    ctx->quote = 0;
+    ctx->last = 0;
+}
 
 static void input_reset(viper_scpi_context_t *ctx)
 {
     ctx->length = 0;
-    ctx->overflow = 0;
-    ctx->block_state = BLK_NONE;
-    ctx->quote = 0;
-    ctx->last = 0;
     ctx->unit_start = 0;
+    framing_reset(ctx);
 }
 
 static bool streaming(const viper_scpi_context_t *ctx)
 {
     return ctx->block_state >= BLK_STREAM;
+}
+
+/* The message ended inside a block: right after its '#', in its length
+ * digits or in its data. */
+static bool block_cut(const viper_scpi_context_t *ctx)
+{
+    return ctx->block_state == BLK_HASH || ctx->block_state == BLK_LENGTH ||
+           ctx->block_state == BLK_DATA;
+}
+
+/* A LF that ends the program message (unless it is data or a separator). */
+static bool is_terminator(const viper_scpi_context_t *ctx, char c)
+{
+    return c == '\n' && !lf_separates(ctx);
 }
 
 /* Tells the handler a streamed block was cut short. */
@@ -687,17 +738,55 @@ static bool stream_call(viper_scpi_context_t *ctx, viper_scpi_stream_event_t ev,
     return true;
 }
 
-/* The streamed unit ended (';' or message end): END, then the line buffer
- * starts afresh for the units that follow. The path is not inherited. */
-static void stream_finish_unit(viper_scpi_context_t *ctx)
+/*
+ * The streamed unit ended (';' or message end): END, unless the block or the
+ * unit was cut short. The units that follow are buffered after the streamed
+ * command's header, which stays in the buffer: its mnemonics are the path
+ * for relative headers (SCPI-99 6.2.4), and ctx->exec_pos marks its end.
+ */
+static void stream_unit_done(viper_scpi_context_t *ctx)
 {
     if (ctx->block_state == BLK_TAIL) {
         ctx->unit_has_output = 0;
         (void)stream_call(ctx, VIPER_SCPI_STREAM_END, NULL, 0);
     }
-    input_reset(ctx);
-    ctx->prefix_count = 0;
+    framing_reset(ctx);
+    ctx->last = ';';               /* what ended the unit */
+    ctx->length = ctx->exec_pos;   /* keep the header */
+    ctx->unit_start = ctx->length; /* later units do not stream */
     viper_scpi_srq_update(ctx);
+}
+
+/* A program message starts executing: response separators, path and
+ * overflow state start afresh. */
+static void message_begin(viper_scpi_context_t *ctx)
+{
+    ctx->prefix_count = 0;
+    ctx->line_has_output = 0;
+    ctx->out_overflow = 0;
+}
+
+/*
+ * The program message is complete, or abandoned after part of it ran (a
+ * streamed first command): terminate its response and free the line buffer.
+ * This is the only place a response message ends. The framing state is left
+ * alone: it may already describe input refused while the message was
+ * suspended, which is still being discarded.
+ */
+static void message_end(viper_scpi_context_t *ctx)
+{
+    if (ctx->line_has_output) {
+        emit(ctx, "\n", 1);
+    }
+    ctx->line_has_output = 0;
+    ctx->unit_has_output = 0;
+    if (ctx->out_overflow) {
+        output_reset(ctx); /* -321 already queued; no partial reply */
+    }
+    ctx->msg_started = 0;
+    ctx->length = 0;
+    ctx->unit_start = 0;
+    viper_scpi_srq_update(ctx); /* MAV rose */
 }
 
 /*
@@ -710,6 +799,7 @@ static void run_line(viper_scpi_context_t *ctx)
     size_t start = ctx->exec_pos;
     char quote = 0;
 
+    ctx->running = 1;
     for (size_t i = start; i <= ctx->length; i++) {
         if (i < ctx->length) {
             char c = ctx->buffer[i];
@@ -741,61 +831,62 @@ static void run_line(viper_scpi_context_t *ctx)
         start = i + 1;
         if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
             ctx->exec_pos = start;
+            ctx->running = 0;
             return;
         }
     }
-
-    if (ctx->line_has_output) {
-        emit(ctx, "\n", 1);
-    }
-    /* The response message is complete; separators start afresh. */
-    ctx->line_has_output = 0;
-    ctx->unit_has_output = 0;
-    if (ctx->out_overflow) {
-        output_reset(ctx); /* -321 already queued; no partial reply */
-    }
-    input_reset(ctx);
-    viper_scpi_srq_update(ctx); /* MAV rose */
+    ctx->running = 0;
+    message_end(ctx);
 }
 
-/* A program message starts executing: response separators, path and
- * overflow state start afresh. */
-static void message_begin(viper_scpi_context_t *ctx)
-{
-    ctx->prefix_count = 0;
-    ctx->line_has_output = 0;
-    ctx->out_overflow = 0;
-}
-
+/*
+ * The received line is complete: execute it. ctx->msg_started stays set
+ * until message_end(), so the response stays hidden (no MAV, nothing to
+ * read) while the units run, are suspended, or call back into the library.
+ */
 static void execute_line(viper_scpi_context_t *ctx)
 {
     if (!ctx->msg_started) {
         message_begin(ctx);
-    }
-    ctx->msg_started = 0;
-    ctx->exec_pos = 0;
+        ctx->msg_started = 1;
+        ctx->exec_pos = 0;
+    } /* else a streamed first unit ran; exec_pos is the end of its header */
+    framing_reset(ctx); /* from here on it describes the next message */
     run_line(ctx);
+}
+
+/* Only white space (and LF separators): not a program message. */
+static bool blank_line(const viper_scpi_context_t *ctx)
+{
+    for (size_t i = 0; i < ctx->length; i++) {
+        if (!viper_scpi_is_space(ctx->buffer[i]) && ctx->buffer[i] != '\n') {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void finish_line(viper_scpi_context_t *ctx)
 {
-    if (streaming(ctx)) {
-        if (ctx->block_state == BLK_STREAM || ctx->block_state == BLK_SKIP) {
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+        /* The end of a message refused while another one is suspended
+         * (viper_scpi_busy()): it was dropped as a whole. */
+        if (ctx->overflow) {
+            viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
+        }
+        framing_reset(ctx);
+        return;
+    }
+    if (streaming(ctx) || ctx->skip_unit) {
+        if (ctx->block_state == BLK_STREAM || ctx->block_state == BLK_SKIP ||
+            (ctx->skip_unit && block_cut(ctx))) {
             stream_abort(ctx); /* EOM before the declared length */
             viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INVALID_BLOCK);
         }
-        stream_finish_unit(ctx);
-        /* The message ends here; finish its response. */
+        stream_unit_done(ctx);
+        /* The message ends here; finish its response below. */
     }
-    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
-        /* Input was refused while suspended (viper_scpi_busy()). */
-        if (ctx->input_dropped) {
-            ctx->input_dropped = 0;
-            viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
-        }
-        return;
-    }
-    if (ctx->length == 0 && !ctx->overflow && !ctx->msg_started) {
+    if (!ctx->msg_started && !ctx->overflow && blank_line(ctx)) {
         input_reset(ctx);
         return; /* an empty line is not a program message */
     }
@@ -804,26 +895,27 @@ static void finish_line(viper_scpi_context_t *ctx)
         output_reset(ctx);
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
     }
-    if (ctx->block_state == BLK_HASH || ctx->block_state == BLK_LENGTH ||
-        ctx->block_state == BLK_DATA) {
-        /* The message ended inside a block -- right after its '#', in its
-         * length digits or in its data: the controller did not send what it
-         * started, so no command of the message runs. */
+    if (block_cut(ctx)) {
+        /* The controller did not send the block it started, so no command
+         * of the message runs. */
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INVALID_BLOCK);
-        ctx->msg_started = 0;
     } else if (ctx->overflow) {
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_INPUT_OVERRUN);
-        ctx->msg_started = 0;
     } else {
         execute_line(ctx); /* resets the input unless it suspends */
         return;
     }
+    if (ctx->msg_started) {
+        message_end(ctx); /* a streamed first command already ran */
+    }
     input_reset(ctx);
 }
 
+/* Keeps a byte of the message being assembled, unless it is being dropped
+ * (overrun, refused while suspended) or skipped (rest of a failed unit). */
 static void store(viper_scpi_context_t *ctx, char c)
 {
-    if (ctx->overflow) {
+    if (ctx->overflow || ctx->skip_unit || ctx->wait != VIPER_SCPI_WAIT_NONE) {
         return;
     }
     if (ctx->length >= VIPER_SCPI_BUFFER_SIZE) {
@@ -852,12 +944,14 @@ void viper_scpi_input_discard(viper_scpi_context_t *ctx)
 {
     if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
         /* The buffer holds the rest of a message being executed, not
-         * partial input; only forget bytes refused meanwhile. */
-        ctx->input_dropped = 0;
+         * partial input; only forget a message refused meanwhile. */
+        framing_reset(ctx);
         return;
     }
     stream_abort(ctx);
-    ctx->msg_started = 0;
+    if (ctx->msg_started) {
+        message_end(ctx); /* a streamed first command already ran */
+    }
     input_reset(ctx);
 }
 
@@ -868,7 +962,8 @@ void viper_scpi_device_clear(viper_scpi_context_t *ctx)
      * cancelled. Operations themselves belong to the application. */
     ctx->wait = VIPER_SCPI_WAIT_NONE;
     ctx->opc_armed = 0;
-    ctx->input_dropped = 0;
+    ctx->line_has_output = 0; /* the cleared reply gets no terminator */
+    ctx->unit_has_output = 0;
     viper_scpi_input_discard(ctx);
     ctx->prefix_count = 0;
     viper_scpi_output_discard(ctx);
@@ -901,7 +996,7 @@ static bool stream_start(viper_scpi_context_t *ctx)
     size_t hlen = 0;
 
     if (ctx->cfg->stream_nodes == NULL || ctx->unit_start != 0 || ctx->overflow ||
-        ctx->msg_started) {
+        ctx->msg_started || ctx->wait != VIPER_SCPI_WAIT_NONE) {
         return false;
     }
     while (n > 0 && viper_scpi_is_space(*s)) {
@@ -942,16 +1037,26 @@ static bool stream_start(viper_scpi_context_t *ctx)
         output_reset(ctx);
         viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
     }
-    message_begin(ctx);
+    ctx->line_has_output = 0; /* message_begin(), except the path: */
+    ctx->out_overflow = 0;    /* resolve_header() has just set it */
     ctx->msg_started = 1;
+    ctx->exec_pos = (size_t)(s - ctx->buffer) + hlen; /* end of the header */
     ctx->unit_has_output = 0;
     ctx->stream = sn->handler;
     ctx->block_state = BLK_STREAM;
-    if (!stream_call(ctx, VIPER_SCPI_STREAM_BEGIN, NULL, ctx->block_remaining)) {
+#if SIZE_MAX < 0xFFFFFFFFu
+    if (ctx->block_remaining > SIZE_MAX) {
+        /* 16-bit size_t: BEGIN could not report the length. */
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+        ctx->block_state = BLK_SKIP;
+    } else
+#endif
+    if (!stream_call(ctx, VIPER_SCPI_STREAM_BEGIN, NULL, (size_t)ctx->block_remaining)) {
         ctx->block_state = BLK_SKIP;
     }
     if (ctx->block_remaining == 0) {
-        ctx->block_state = (ctx->block_state == BLK_SKIP) ? BLK_TAIL_DISCARD : BLK_TAIL;
+        ctx->skip_unit = (ctx->block_state == BLK_SKIP) ? 1 : 0;
+        ctx->block_state = ctx->skip_unit ? BLK_NONE : BLK_TAIL;
     }
     return true;
 }
@@ -966,39 +1071,71 @@ static void stream_data(viper_scpi_context_t *ctx, const char *p, size_t k)
     ctx->block_remaining -= (uint32_t)k;
     if (ctx->block_remaining == 0) {
         /* A failed block still has to have its unit consumed. */
-        ctx->block_state = (ctx->block_state == BLK_SKIP) ? BLK_TAIL_DISCARD : BLK_TAIL;
-    }
-}
-
-/* Characters after a streamed block, up to the end of its unit. */
-static void stream_tail(viper_scpi_context_t *ctx, char c)
-{
-    if (c == '\n' && !lf_separates(ctx)) {
-        finish_line(ctx);
-    } else if (c == ';' || c == '\n') {
-        stream_finish_unit(ctx);
-    } else if (ctx->block_state == BLK_TAIL && !viper_scpi_is_space(c) && c != '\r') {
-        /* Another parameter after the block: not allowed. */
-        stream_abort(ctx);
-        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED);
-        ctx->block_state = BLK_TAIL_DISCARD;
+        ctx->skip_unit = (ctx->block_state == BLK_SKIP) ? 1 : 0;
+        ctx->block_state = ctx->skip_unit ? BLK_NONE : BLK_TAIL;
     }
 }
 
 /*
- * Block data may contain any byte, including '\n' and ';', so the input side
- * has to recognise blocks while the line is still being assembled. The rules
- * mirror block_at() used when the line is executed.
+ * A character after a streamed block. White space, then ';' or the message
+ * end, complete the command; returns true for those. Anything else starts a
+ * parameter that is not allowed: the handler gets ABORT, and the rest of the
+ * unit is lexed like any other input (so strings and blocks in it cannot end
+ * it early) but not kept. Returns false so that @p c itself is lexed too.
+ */
+static bool stream_tail(viper_scpi_context_t *ctx, char c)
+{
+    if (is_terminator(ctx, c)) {
+        finish_line(ctx);
+    } else if (c == ';' || c == '\n') {
+        stream_unit_done(ctx);
+    } else if (!viper_scpi_is_space(c)) {
+        stream_abort(ctx);
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED);
+        ctx->block_state = BLK_NONE;
+        ctx->skip_unit = 1;
+        return false;
+    }
+    return true;
+}
+
+/* A digit of a block header: "#0" (indefinite), or "#<n>" and its n length
+ * digits (definite). */
+static void block_digit(viper_scpi_context_t *ctx, char c)
+{
+    store(ctx, c);
+    ctx->last = c;
+    if (ctx->block_state == BLK_HASH) {
+        if (c == '0') {
+            ctx->block_state = BLK_INDEFINITE;
+        } else {
+            ctx->block_state = BLK_LENGTH;
+            ctx->block_digits = (uint8_t)(c - '0');
+            ctx->block_remaining = 0;
+        }
+        return;
+    }
+    ctx->block_remaining = ctx->block_remaining * 10u + (uint32_t)(c - '0');
+    if (--ctx->block_digits == 0 && !stream_start(ctx)) {
+        ctx->block_state = (ctx->block_remaining > 0) ? BLK_DATA : BLK_NONE;
+    }
+}
+
+/*
+ * The one framing state machine: it decides where the program message ends,
+ * which bytes are strings and blocks, and where units end, for every byte --
+ * also for bytes it does not keep (an overrun message, a message refused
+ * while another is suspended, the rest of a failed unit after a streamed
+ * block). run_line() and split_params() apply the same rules to the stored
+ * line: quotes, and blocks that start at a parameter boundary.
  */
 void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
 {
-    if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
-        if (c == '\n') {
-            finish_line(ctx);
-        } else {
-            ctx->input_dropped = 1;
-        }
-        return;
+    if (ctx->wait != VIPER_SCPI_WAIT_NONE && !ctx->overflow && c != '\n' &&
+        !viper_scpi_is_space(c)) {
+        /* Refused (viper_scpi_busy()): the whole message is dropped, and
+         * reported as -363 at its end. */
+        ctx->overflow = 1;
     }
     switch (ctx->block_state) {
     case BLK_STREAM:
@@ -1006,75 +1143,62 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         stream_data(ctx, &c, 1);
         return;
     case BLK_TAIL:
-    case BLK_TAIL_DISCARD:
-        stream_tail(ctx, c);
-        return;
+        if (stream_tail(ctx, c)) {
+            return;
+        }
+        break;
     case BLK_DATA:
         store(ctx, c);
+        ctx->last = c;
         if (--ctx->block_remaining == 0) {
             ctx->block_state = BLK_NONE;
         }
         return;
     case BLK_INDEFINITE:
-        if (c == '\n' && !lf_separates(ctx)) {
+        /* IEEE 488.2 7.7.6.2: the block ends with the message, at NL^END. On
+         * a transport that signals the end out of band (EOM / END) a bare LF
+         * is block data. */
+        if (c == '\n' && !queued(ctx)) {
             finish_line(ctx);
         } else {
             store(ctx, c);
+            ctx->last = c;
         }
         return;
     case BLK_HASH:
-        if (c == '0') {
-            ctx->block_state = BLK_INDEFINITE;
-            store(ctx, c);
+    case BLK_LENGTH:
+        if (c >= '0' && c <= '9') {
+            block_digit(ctx, c);
             return;
         }
-        if (c >= '1' && c <= '9') {
-            ctx->block_state = BLK_LENGTH;
-            ctx->block_digits = (uint8_t)(c - '0');
-            ctx->block_remaining = 0;
-            store(ctx, c);
-            return;
-        }
-        if (c == '\n' && !lf_separates(ctx)) {
-            finish_line(ctx); /* message ends on the '#': -161 */
+        if (is_terminator(ctx, c)) {
+            finish_line(ctx); /* message ends inside the block header: -161 */
             return;
         }
         if (c == '\r' || c == '\0') {
-            return; /* ignored as everywhere; "#\r\n" ends like "#\n" */
+            return; /* "#\r\n" and "#1\r\n" end like "#\n" and "#1\n" */
         }
-        ctx->block_state = BLK_NONE; /* "#H..." etc.: ordinary character */
-        break;
-    case BLK_LENGTH:
-        if (c >= '0' && c <= '9') {
-            ctx->block_remaining = ctx->block_remaining * 10u + (uint32_t)(c - '0');
-            store(ctx, c);
-            if (--ctx->block_digits == 0 && !stream_start(ctx)) {
-                ctx->block_state = (ctx->block_remaining > 0) ? BLK_DATA : BLK_NONE;
-            }
-            return;
-        }
-        ctx->block_state = BLK_NONE; /* malformed length: parsed as text */
+        /* "#H..." etc. is ordinary text; an incomplete definite block
+         * ("#1;", "#2x") is reported by split_params(). */
+        ctx->block_state = BLK_NONE;
         break;
     default:
         break;
     }
 
     /* In the message-exchange model the message end is signalled out of band
-     * (EOM / END), so a newline or carriage return inside an open quote is
-     * string data (IEEE 488.2 7.7.5: any 7-bit ASCII character may appear
-     * between the delimiters). On stream transports LF stays the only
-     * terminator, even inside quotes, so one lost quote cannot swallow every
-     * following message. */
-    if (ctx->quote != 0 && queued(ctx) && (c == '\n' || c == '\r')) {
+     * (EOM / END), so a newline inside an open quote is string data (IEEE
+     * 488.2 7.7.5: any 7-bit ASCII character may appear between the
+     * delimiters). On stream transports LF stays the only terminator, even
+     * inside quotes, so one lost quote cannot swallow every following
+     * message. */
+    if (ctx->quote != 0 && queued(ctx) && c == '\n') {
         store(ctx, c);
         ctx->last = c;
         return;
     }
-    if (c == '\n' && !lf_separates(ctx)) {
+    if (is_terminator(ctx, c)) {
         finish_line(ctx);
-        return;
-    }
-    if (c == '\r' || c == '\0') {
         return;
     }
     if (ctx->quote != 0) {
@@ -1083,20 +1207,26 @@ void viper_scpi_input_char(viper_scpi_context_t *ctx, char c)
         }
     } else if (c == '"' || c == '\'') {
         ctx->quote = c;
-    } else if (c == '#' && (ctx->last == ' ' || ctx->last == '\t' || ctx->last == ',')) {
+    } else if (c == '#' && param_boundary(ctx->last)) {
         ctx->block_state = BLK_HASH;
         ctx->hash_pos = ctx->length;
     }
     store(ctx, c);
     ctx->last = c;
-    if ((c == ';' || c == '\n') && ctx->quote == 0 && !ctx->overflow) {
-        ctx->unit_start = ctx->length;
+    if ((c == ';' || c == '\n') && ctx->quote == 0) {
+        if (ctx->skip_unit) {
+            stream_unit_done(ctx); /* the failed unit after a streamed block */
+        } else if (!ctx->overflow && ctx->wait == VIPER_SCPI_WAIT_NONE) {
+            ctx->unit_start = ctx->length;
+        }
     }
 }
 
-void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t len)
+size_t viper_scpi_input_until_busy(viper_scpi_context_t *ctx, const char *data, size_t len)
 {
-    for (size_t i = 0; i < len;) {
+    size_t i = 0;
+
+    while (i < len) {
         if (ctx->block_state == BLK_STREAM || ctx->block_state == BLK_SKIP) {
             /* Hand streamed block data over in as large a piece as arrived. */
             size_t k = len - i;
@@ -1106,8 +1236,23 @@ void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t
             stream_data(ctx, data + i, k);
             i += k;
         } else {
+            if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+                break; /* busy: the caller holds the rest back */
+            }
             viper_scpi_input_char(ctx, data[i++]);
         }
+    }
+    return i;
+}
+
+void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t len)
+{
+    size_t i = viper_scpi_input_until_busy(ctx, data, len);
+
+    /* Bytes that arrive while busy are refused: their messages are dropped
+     * whole and reported as -363. */
+    while (i < len) {
+        viper_scpi_input_char(ctx, data[i++]);
     }
 }
 

@@ -309,6 +309,38 @@ static void test_user_data_and_null_write(void)
     CHECK_INT(viper_scpi_error_count(&c), 0);
 }
 
+/* IEEE 488.2 7.4.1.2: CR, NUL, VT, FF and the other control bytes are white
+ * space, not dropped -- so a stray CR cannot join two tokens. */
+static void test_ieee_white_space(void)
+{
+    fx_setup();
+    fx_send("SOUR:VOLT\r5");                      /* header separator */
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), 0);
+    CHECK(g_volt == 5.0);
+    fx_send("SOUR:VOLT 1\r2");                    /* not "12" */
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -104);
+    CHECK(g_volt == 5.0);
+    fx_send("SOUR:VOLT\v7\f");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), 0);
+    CHECK(g_volt == 7.0);
+    fx_clear();
+    fx_send("PARAMS 1 ,\t2\r");
+    CHECK_STR(fx_out(), "2\n");
+}
+
+/* Expression data (IEEE 488.2 7.7.7), e.g. a SCPI channel list, is one
+ * parameter: its commas do not separate parameters. */
+static void test_expression_data_is_one_parameter(void)
+{
+    fx_setup();
+    fx_send("PARAMS (@1,2,3)");
+    CHECK_STR(fx_out(), "1\n");
+    fx_clear();
+    fx_send("PARAMS (@1:3,5,7,9,11,13,15,17,19),'a,b',2");
+    CHECK_STR(fx_out(), "3\n");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+}
+
 int main(void)
 {
     test_init_validation();
@@ -335,5 +367,7 @@ int main(void)
     test_buffer_overrun();
     test_overrun_via_end_of_message();
     test_user_data_and_null_write();
+    test_ieee_white_space();
+    test_expression_data_is_one_parameter();
     return test_summary("test_parser");
 }

@@ -6,6 +6,64 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Input framing is decided in one place for every byte, also for bytes that
+  are not kept. As a result:
+  - A message refused while another is suspended (`*WAI`, `*OPC?`) is dropped
+    whole and reported once as -363, even if the suspension ends before its
+    last byte arrives. Before, its tail ran as a separate command (`SOUR2:`
+    refused, then `VOLT 30` set channel 1), and a LF inside a refused block
+    let block data run as commands.
+  - After a streamed block, the rest of a command with a surplus parameter is
+    skipped with strings and blocks recognised; a `;` inside them no longer
+    starts a command (`MMEM:UPL #15hello,'a;*RST'` ran `*RST`).
+  - A message that ends inside a block's length digits (`RAW #1<LF>`,
+    `RAW #1<CR><LF>`) is dropped with -161 like one that ends right after the
+    `#`; an incomplete definite block inside a message (`#1;`, `#25x`) is
+    -161 instead of being passed on as text.
+  - In the message-exchange model a LF inside an indefinite `#0` block is
+    block data; the block ends at EOM (IEEE 488.2 NL^END). Before, binary
+    data containing 0x0A was cut and its tail executed.
+  - The input state machine and the line executor agree on where a block
+    starts after a block's last byte.
+- CR, NUL, VT, FF and the other control bytes are IEEE 488.2 white space
+  instead of being deleted: `VOLT 1<CR>2` is -104, not 12, and `VOLT<CR>5`
+  sets 5. `\r\n` still ends a line.
+- A response message is ended in one place. A streamed first command's reply
+  is terminated (and dropped whole after -321) when the rest of the message is
+  dropped with -161 or -363 or by `viper_scpi_input_discard()`; before, it was
+  handed out without its `\n` and glued to the next reply.
+- The partial reply of a running or suspended message no longer raises MAV for
+  service requests, serial polls and `viper_scpi_output_read()` (*STB? inside
+  the message still sees it). A suspended `*IDN?;INIT;*WAI` with `*SRE 16`
+  raised an SRQ for a reply that could not be read.
+- `viper_scpi_output_discard()` during a suspended message no longer makes
+  the resumed reply start with `;`.
+- A relative header after a streamed command inherits its path (SCPI-99
+  6.2.4) instead of being resolved from the root, which could run a root node
+  of the same name.
+- A line of only white space is not a message and no longer interrupts a
+  reply with -410.
+- `viper_scpi_error_pop()`, `_pop_info()` and `_clear()` update the
+  service-request state, so a later request from another source is not lost;
+  a request whose reason went away before it was taken is no longer reported.
+- Queue overflow sets DDE in the ESR for the -350 it queues.
+- Commas inside parentheses (expression data, SCPI channel lists such as
+  `(@1,2,3)`) no longer split parameters.
+- A streamed block longer than `SIZE_MAX` (16-bit `size_t`) is rejected with
+  -222 instead of reporting a truncated length at BEGIN.
+
+### Added
+
+- `viper_scpi_input_until_busy()`: feeds a chunk up to the message that
+  suspends execution and returns how many bytes it consumed, so a transport
+  can keep pipelined commands instead of having them refused.
+
+### Changed
+
+- The context grew by 4 bytes on Cortex-M (440).
+
 ## [0.2.1] - 2026-11-01
 
 ### Fixed

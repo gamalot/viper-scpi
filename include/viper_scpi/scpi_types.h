@@ -273,13 +273,15 @@ struct viper_scpi_context_s {
     uint8_t op_count;      /**< Pending operations (op_begin - op_end) */
     uint8_t wait;          /**< WAIT_* : why execution is suspended */
     uint8_t opc_armed;     /**< *OPC given while operations were pending */
-    uint8_t input_dropped; /**< Bytes arrived while suspended */
+    uint8_t skip_unit;     /**< Rest of the unit is lexed but not kept */
+    uint8_t running;       /**< Inside run_line(): units are executing */
     viper_scpi_status_set_t status[2]; /**< OPERation, QUEStionable */
     /* Streaming block input */
     viper_scpi_block_stream_t stream;  /**< Handler of the block being streamed */
     size_t unit_start;     /**< Buffer offset where the current unit starts */
     size_t hash_pos;       /**< Buffer offset of the '#' of the current block */
-    uint8_t msg_started;   /**< Part of this message has already executed */
+    uint8_t msg_started;   /**< A message is executing (or streaming, or
+                                suspended); its response is not complete */
     uint32_t block_remaining;
     uint8_t suffix_count;
     uint8_t prefix_count;

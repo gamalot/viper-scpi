@@ -368,10 +368,14 @@ static void test_block_errors(void)
 
     fx_send("BLOCK #15helloX");            /* garbage after the block */
     CHECK_INT(err(), -102);
-    fx_send("BLOCK #1a");                  /* malformed length: plain text */
-    CHECK_INT(err(), -104);
-    fx_send("BLOCK #2");
-    CHECK_INT(err(), -104);
+    fx_send("BLOCK #1a");                  /* malformed length: invalid block */
+    CHECK_INT(err(), -161);
+    fx_send("COUNT 9;BLOCK #2");           /* LF inside the length digits */
+    CHECK_INT(err(), -161);
+    CHECK_INT(g_count, 1);                 /* dropped as a whole, like EOM */
+    fx_send("COUNT 8;BLOCK #1\r");        /* CR LF likewise */
+    CHECK_INT(err(), -161);
+    CHECK_INT(g_count, 1);
     g_block_calls = 0;
     viper_scpi_input_buffer(&g_ctx, "BLOCK #233abcde", 15);   /* declares 33, has 5 */
     viper_scpi_end_of_message(&g_ctx);

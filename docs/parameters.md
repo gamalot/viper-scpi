@@ -164,6 +164,13 @@ res = viper_scpi_param_block(ctx, 0, &data, &len);
 whole program message, block included, must fit in `VIPER_SCPI_BUFFER_SIZE`;
 for larger uploads see [Large data](large-data.md).
 
+### Expression data and channel lists
+
+A parenthesised parameter (IEEE 488.2 7.7.7 expression data), such as the SCPI
+channel list `(@1,3:5)`, is one parameter: commas inside parentheses do not
+separate parameters. Read it with `viper_scpi_param_raw()` and parse the list
+yourself; `ROUT:CLOS (@1,2,3),5` has two parameters.
+
 ## Writing responses
 
 Call the `viper_scpi_result_*` functions from a query callback, in order.

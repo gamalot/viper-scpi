@@ -9,9 +9,11 @@ static inline char viper_scpi_upper(char c)
     return (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
 }
 
+/* IEEE 488.2 7.4.1.2 <white space>: bytes 0x00-0x09 and 0x0B-0x20 (LF is
+ * not white space; it terminates or separates). */
 static inline bool viper_scpi_is_space(char c)
 {
-    return c == ' ' || c == '\t';
+    return (unsigned char)c <= 0x20u && c != '\n';
 }
 
 /** One mnemonic of a node pattern such as "TRIGger[:SEQuence]:SOURce". */
@@ -68,6 +70,10 @@ extern const viper_scpi_node_t viper_scpi_status_children[];
 /** STATus:PRESet values (also the power-on state): enables 0, PTR all ones,
  *  NTR 0. Events and conditions are left alone. */
 void viper_scpi_status_preset(viper_scpi_context_t *ctx);
+
+/** The output queue holds response bytes, complete (MAV) or still being
+ *  produced by the executing message. */
+bool viper_scpi_output_queued(const viper_scpi_context_t *ctx);
 
 /** Re-evaluate the service-request condition and latch a rising edge. Call
  *  after anything that can change the status byte or SRE. */

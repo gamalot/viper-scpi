@@ -115,7 +115,7 @@ static const viper_scpi_config_t cfg = {
 | message bytes arrive | `viper_scpi_input_buffer()` |
 | end of message (USBTMC EOM, VXI-11 END) | `viper_scpi_end_of_message()` |
 | controller requests a reply of up to *n* bytes | `viper_scpi_output_read(ctx, buf, n, &end)`; send `end` as EOM/END |
-| request with nothing queued | push `VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED` (-420), let the controller time out |
+| request with nothing queued | while `viper_scpi_busy(ctx)`, keep the request and answer it once `viper_scpi_output_pending()` (the reply of `INIT;*OPC?` is still coming); otherwise push `VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED` (-420) and let the controller time out |
 | abort of a reply (USBTMC ABORT_BULK_IN) | `viper_scpi_output_discard()` |
 | abort of incoming data only (USBTMC ABORT_BULK_OUT, CLEAR_FEATURE on bulk OUT, VXI-11 abort) | `viper_scpi_input_discard()`: the queued reply stays readable |
 | device clear (viClear, USBTMC INITIATE_CLEAR, VXI-11 device_clear) | `viper_scpi_device_clear()` |
@@ -128,11 +128,12 @@ What changes in this mode:
 
 - The status byte carries **MAV** (bit 4) while a reply is queued.
 - A new program message arriving over an unread (or partly read) reply
-  discards it and queues **-410** Query INTERRUPTED (488.2 6.3.2.3). An empty
-  line is not a message.
-- A newline (or carriage return) inside an open string quote is string data,
-  since the message end is signalled by EOM/END and IEEE 488.2 7.7.5 allows
-  any 7-bit ASCII character in string data: `STR "a<LF>b"` sets `a<LF>b`.
+  discards it and queues **-410** Query INTERRUPTED (488.2 6.3.2.3). A line of
+  only white space is not a message.
+- A newline inside an open string quote is string data, since the message
+  end is signalled by EOM/END and IEEE 488.2 7.7.5 allows any 7-bit ASCII
+  character in string data: `STR "a<LF>b"` sets `a<LF>b`. Likewise a LF inside
+  an indefinite `#0` block is block data; the block ends at EOM (NL^END).
   In the stream model LF always ends the message, even inside quotes, so one
   lost quote cannot swallow every message after it.
 - A reply that does not fit `output_size` is dropped whole with **-321** Out of
@@ -194,7 +195,12 @@ operation is pending. Meanwhile:
 
 - `viper_scpi_busy(ctx)` is true and input is refused: the transport holds the
   controller off (USBTMC NAKs bulk-OUT, a UART deasserts RTS or buffers).
-  Bytes fed anyway are dropped and reported as `-363` at their message end.
+  Bytes fed anyway are refused: the message they belong to is dropped whole
+  (also if the suspension ends before its last byte arrives) and reported as
+  `-363` at its end. `viper_scpi_input_buffer()` refuses the rest of its data
+  once a message in it suspends; `viper_scpi_input_until_busy()` stops right
+  there instead and returns how many bytes it consumed, for a transport that
+  can keep the rest (pipelined commands in one TCP segment).
 - In the message-exchange model the response is not readable (MAV clear,
   `viper_scpi_output_read()` returns nothing) until the message finishes; in
   the stream model responses already produced have been written.
@@ -380,13 +386,15 @@ the transport's packets). The rules:
   streams; parameters before it (`MMEM:DATA 'file.bin',#9...`) are readable at
   BEGIN. Elsewhere, indefinite blocks and nodes not in the table use the line
   buffer as before (a block that does not fit is still `-363`).
-- Commands after the streamed one in the same message run normally; they do
-  not inherit its path (`MMEM:DATA ...;DATA ...` is `-113` for the second).
+- Commands after the streamed one in the same message run normally, with its
+  path like after any command (`MMEM:DATA ...;DATA ...` is `MMEM:DATA` twice;
+  only the first streams).
 - End of message before the declared length: ABORT, then `-161`.
   `viper_scpi_device_clear()` and `viper_scpi_input_discard()` mid-block:
   ABORT, no error.
 - A parameter after the block: ABORT, `-108`, and the rest of that command is
-  skipped; later commands still run.
+  skipped -- strings and blocks in it included, so a `;` inside them does not
+  start a command; later commands still run.
 - A non-zero return from BEGIN or DATA is queued and the rest of the block is
   skipped without further calls. END may write responses; in the
   message-exchange model they are readable once the whole message is done.
@@ -437,7 +445,9 @@ Callbacks must not call the `viper_scpi_input_*` functions.
 ## Input handling
 
 `viper_scpi_input_char()` / `viper_scpi_input_buffer()` accumulate a line and
-execute it on `\n` (`\r` is ignored). For transports with explicit message
+execute it on `\n`. CR, NUL, tab and the other control bytes are white space
+(IEEE 488.2 7.4.1.2), so `\r\n` ends a line too and a stray CR separates
+tokens rather than joining them. For transports with explicit message
 boundaries (USBTMC EOM) call `viper_scpi_end_of_message()`. A line longer than
 `VIPER_SCPI_BUFFER_SIZE` is discarded and reports `-363` (input buffer overrun).
 

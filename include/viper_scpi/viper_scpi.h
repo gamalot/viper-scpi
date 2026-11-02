@@ -28,11 +28,28 @@ extern "C" {
 viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx,
                                     const viper_scpi_config_t *cfg);
 
-/** Feed one byte. A '\n' executes the buffered line; '\r' is ignored. */
+/**
+ * Feed one byte. A '\n' executes the buffered line (in the message-exchange
+ * model it is string or #0 block data inside those). CR and the other IEEE
+ * 488.2 white-space bytes are white space, so "\r\n" ends a line too. While
+ * viper_scpi_busy() is true the byte is refused: its whole message is
+ * dropped and reported as -363 at its end.
+ */
 void viper_scpi_input_char(viper_scpi_context_t *ctx, char c);
 
-/** Feed @p len bytes. */
+/** Feed @p len bytes. Bytes that arrive while viper_scpi_busy() is true
+ *  (including the rest of @p data once a message in it suspends) are refused
+ *  like with viper_scpi_input_char(). */
 void viper_scpi_input_buffer(viper_scpi_context_t *ctx, const char *data, size_t len);
+
+/**
+ * Feed bytes while the parser is not busy; returns how many were consumed
+ * (0 if it is busy already). It stops right after the message that suspends
+ * execution (*WAI, or *OPC? with an operation pending), so a transport that
+ * cannot stall its sender can keep the rest -- e.g. pipelined commands in one
+ * TCP segment -- and feed it once viper_scpi_busy() is false again.
+ */
+size_t viper_scpi_input_until_busy(viper_scpi_context_t *ctx, const char *data, size_t len);
 
 /** Execute the buffered line without a '\n' (e.g. USBTMC EOM). */
 void viper_scpi_end_of_message(viper_scpi_context_t *ctx);

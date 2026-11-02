@@ -181,16 +181,17 @@ static void test_following_units_and_lf(void)
 {
     setup();
     srand(11);
-    /* Units after the streamed one run; the path is not inherited. */
+    /* Units after the streamed one run. */
     send_block("MMEM:UPL ", 300, 300, " ;*OPC?;:MMEM:UPL #10\n");
     CHECK_INT(s_end, 1);
     CHECK_INT(s_plain_calls, 1);               /* only a first command streams */
     CHECK_STR(reply(), "300;1\n");
     CHECK_INT(viper_scpi_error_count(&q), 0);
-    /* A relative header after the streamed unit is resolved from the root. */
+    /* A relative header after the streamed unit inherits its path. */
     send_block("MMEM:UPL ", 5, 5, ";UPL\n");
     CHECK_INT(s_end, 2);
-    CHECK_INT(viper_scpi_error_pop(&q), -113);
+    CHECK_INT(s_plain_calls, 2);               /* MMEM:UPL */
+    CHECK_INT(viper_scpi_error_count(&q), 0);
     CHECK_STR(reply(), "5\n");
 }
 
@@ -295,6 +296,67 @@ static void test_reply_hidden_and_interrupted(void)
     CHECK_STR(reply(), "50\n");
 }
 
+/* The rest of a command after a streamed block is skipped with strings and
+ * blocks recognised, so a ';' inside them does not start a command. */
+static void test_tail_is_lexed(void)
+{
+    setup();
+    send_block("MMEM:UPL ", 3, 3, ",'a;*OPC?;'");
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_abort, 1);
+    CHECK_INT(viper_scpi_error_pop(&q), -108);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_STR(reply(), "");
+
+    setup();
+    send_block("MMEM:UPL ", 3, 3, ",#14;*OP;*OPC?");
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(viper_scpi_error_pop(&q), -108);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_STR(reply(), "1\n");                 /* the unit after it runs */
+}
+
+/* White space after a streamed block, NUL included, is not a parameter. */
+static void test_tail_white_space(void)
+{
+    setup();
+    send_block("MMEM:UPL ", 3, 3, "");
+    viper_scpi_input_char(&q, '\0');
+    viper_scpi_input_char(&q, '\r');
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_end, 1);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_STR(reply(), "3\n");
+}
+
+/* The streamed command's header is the path for relative headers after it,
+ * as for any other command (SCPI-99 6.2.4). */
+static void test_path_after_streamed_unit(void)
+{
+    setup();
+    send_block("MMEM:UPL ", 3, 3, ";UPL #13abc");
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_end, 1);
+    CHECK_INT(s_plain_calls, 1);               /* MMEM:UPL, not -113 */
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
+/* A message dropped after its streamed first command ran still ends that
+ * command's reply properly. */
+static void test_reply_terminated_when_rest_dropped(void)
+{
+    setup();
+    send_block("MMEM:UPL ", 3, 3, ";STOR #15ab");
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(viper_scpi_error_pop(&q), -161);
+    CHECK_STR(reply(), "3\n");
+
+    setup();
+    send_block("MMEM:UPL ", 3, 3, ";*OPC");
+    viper_scpi_input_discard(&q);
+    CHECK_STR(reply(), "3\n");
+}
+
 int main(void)
 {
     test_large_upload();
@@ -305,5 +367,9 @@ int main(void)
     test_handler_errors();
     test_non_streaming_node_unchanged();
     test_reply_hidden_and_interrupted();
+    test_tail_is_lexed();
+    test_tail_white_space();
+    test_path_after_streamed_unit();
+    test_reply_terminated_when_rest_dropped();
     return test_summary("test_stream");
 }

@@ -29,7 +29,11 @@ static size_t tcp_write(void *user, const char *data, size_t len)
 ```
 
 Input: call `viper_scpi_input_buffer()` with whatever the driver received; a
-`\n` executes the message, `\r` is ignored. In a byte stream LF always ends
+`\n` executes the message, and `\r` is white space, so `\r\n` works too. If
+one segment can hold several commands and one of them suspends execution
+(`INIT;*WAI;FETC?`), use `viper_scpi_input_until_busy()` instead: it returns
+how many bytes it consumed, and the rest is fed once `viper_scpi_busy()` is
+false again (`viper_scpi_input_buffer()` would refuse it with -363). In a byte stream LF always ends
 the message, even inside a quoted string, so one lost quote cannot swallow
 every following command.
 
@@ -62,7 +66,7 @@ static const viper_scpi_config_t cfg = {
 | bytes of a message arrive | `viper_scpi_input_buffer(ctx, data, n)` |
 | last packet of the message (USBTMC EOM, VXI-11 END, HiSLIP DataEnd) | `viper_scpi_end_of_message(ctx)` |
 | controller requests up to *n* bytes (USBTMC REQUEST_DEV_DEP_MSG_IN, VXI-11 device_read) | `k = viper_scpi_output_read(ctx, buf, n, &end)`; send `k` bytes, with EOM/END set when `end` is true |
-| request while nothing is queued | `viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED)` (-420), then let the request time out or send an empty transfer, as the transport specifies |
+| request while nothing is queued | if `viper_scpi_busy(ctx)`, the reply is still being produced (`INIT;*OPC?`): keep the request and answer it from the main loop once `viper_scpi_output_pending(ctx)`. Otherwise `viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED)` (-420), then let the request time out or send an empty transfer, as the transport specifies |
 | controller aborts the reply (USBTMC INITIATE_ABORT_BULK_IN) | `viper_scpi_output_discard(ctx)` |
 | controller aborts incoming data (USBTMC INITIATE_ABORT_BULK_OUT, CLEAR_FEATURE on bulk OUT, VXI-11 abort) | `viper_scpi_input_discard(ctx)`: the queued reply stays readable |
 | device clear (USBTMC INITIATE_CLEAR, VXI-11 device_clear, GPIB DCL/SDC, `viClear`) | `viper_scpi_device_clear(ctx)` |
@@ -129,31 +133,44 @@ bool usbtmc_msg_data_cb(const void *data, size_t len, bool eom)
     return true;
 }
 
-/* REQUEST_DEV_DEP_MSG_IN: the host wants up to max bytes. */
-void usbtmc_msg_in_request_cb(size_t max)
+static size_t s_read_max;                   /* request waiting for a reply */
+
+/* Answers an outstanding read once a complete reply is queued. */
+static void serve_read(void)
 {
     bool end = false;
     size_t n;
 
-    if (!viper_scpi_output_pending(&scpi)) {
-        viper_scpi_error_push(&scpi, VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED);
-        return;                             /* let the host time out */
+    if (s_read_max == 0 || !viper_scpi_output_pending(&scpi)) {
+        return;
     }
-    if (max > sizeof in_buf) {
-        max = sizeof in_buf;
-    }
-    n = viper_scpi_output_read(&scpi, in_buf, max, &end);
+    n = viper_scpi_output_read(&scpi, in_buf, s_read_max, &end);
+    s_read_max = 0;
     usbtmc_transmit_dev_msg_data(in_buf, n, end /* EOM */);
 }
 
-void usbtmc_initiate_clear_cb(void)        { viper_scpi_device_clear(&scpi); }
-void usbtmc_abort_bulk_in_cb(void)         { viper_scpi_output_discard(&scpi); }
+/* REQUEST_DEV_DEP_MSG_IN: the host wants up to max bytes. */
+void usbtmc_msg_in_request_cb(size_t max)
+{
+    if (!viper_scpi_output_pending(&scpi) && !viper_scpi_busy(&scpi)) {
+        viper_scpi_error_push(&scpi, VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED);
+        return;                             /* no reply is coming */
+    }
+    /* Either queued, or still being produced by a message suspended in
+     * *OPC? / *WAI: then the main loop answers it after viper_scpi_poll(). */
+    s_read_max = (max < sizeof in_buf) ? max : sizeof in_buf;
+    serve_read();
+}
+
+void usbtmc_initiate_clear_cb(void)        { s_read_max = 0; viper_scpi_device_clear(&scpi); }
+void usbtmc_abort_bulk_in_cb(void)         { s_read_max = 0; viper_scpi_output_discard(&scpi); }
 void usbtmc_abort_bulk_out_cb(void)        { viper_scpi_input_discard(&scpi); }
 uint8_t usb488_read_status_byte_cb(void)   { return viper_scpi_serial_poll(&scpi); }
 
 void main_loop_step(void)
 {
     viper_scpi_poll(&scpi);
+    serve_read();                           /* a reply that just completed */
     if (viper_scpi_take_service_request(&scpi)) {
         usb488_notify_srq(viper_scpi_serial_poll(&scpi));
     }

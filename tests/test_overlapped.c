@@ -239,6 +239,108 @@ static void test_stream_model(void)
     CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
 }
 
+/* A message refused while busy is dropped as a whole, even if the suspended
+ * message completes before the refused one ends, and its -363 is reported
+ * once, at its own end. */
+static void test_refused_message_dropped_whole(void)
+{
+    setup();
+    send("STAR;*WAI");
+    CHECK(viper_scpi_busy(&q));
+    (void)viper_scpi_input_buffer(&q, "COUN", 4);   /* refused */
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    CHECK(!viper_scpi_busy(&q));
+    (void)viper_scpi_input_buffer(&q, " 5", 2);      /* rest of the refused message */
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_count_calls, 0);
+    CHECK_INT(viper_scpi_error_pop(&q), -363);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+
+    /* No stale report on the next suspended message. */
+    send("STAR;*WAI");
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
+/* Refused input is framed like any other: a LF inside a block does not end
+ * it, so block data cannot run as a command after the resume. */
+static void test_refused_block_framed(void)
+{
+    setup();
+    send("STAR;*WAI");
+    (void)viper_scpi_input_buffer(&q, "COUN #17\nCO", 11);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    (void)viper_scpi_input_buffer(&q, "UN?\n", 4);       /* still block data */
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_count_calls, 0);
+    CHECK_INT(viper_scpi_error_pop(&q), -363);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
+/* input_until_busy() stops where the parser became busy, so the transport
+ * can keep the rest of a pipelined chunk; input_buffer() refuses it. */
+static void test_input_until_busy(void)
+{
+    static const char chunk[] = "STAR;*WAI\nCOUN?\n";
+    size_t k;
+
+    setup();
+    k = viper_scpi_input_until_busy(&q, chunk, sizeof chunk - 1);
+    CHECK_INT(k, 10);
+    CHECK(viper_scpi_busy(&q));
+    CHECK_INT(viper_scpi_input_until_busy(&q, chunk + k, sizeof chunk - 1 - k), 0);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    k = viper_scpi_input_until_busy(&q, chunk + k, sizeof chunk - 1 - k);
+    CHECK_INT(k, 6);
+    CHECK_STR(reply(), "1\n");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+
+    /* The same chunk through input_buffer(): the rest is refused whole,
+     * even though the operation completes before its end arrives. Like any
+     * new message, it also ends the unread reply (-410). */
+    setup();
+    viper_scpi_input_buffer(&q, "STAR;*OPC?\nCOUN ", 16);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    viper_scpi_input_buffer(&q, "5\n", 2);
+    CHECK_INT(s_count_calls, 0);
+    CHECK_INT(viper_scpi_error_pop(&q), -410);
+    CHECK_INT(viper_scpi_error_pop(&q), -363);
+}
+
+/* The partial reply of a suspended message neither raises MAV nor a service
+ * request; the complete one raises exactly one. */
+static void test_no_srq_for_hidden_reply(void)
+{
+    setup();
+    send("*SRE 16");
+    (void)viper_scpi_take_service_request(&q);
+    send("*IDN?;STAR;*WAI");
+    CHECK(!viper_scpi_take_service_request(&q));
+    CHECK_INT(viper_scpi_serial_poll(&q), 0);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    CHECK(viper_scpi_take_service_request(&q));
+    CHECK(!viper_scpi_take_service_request(&q));
+    CHECK_STR(reply(), "Acme,OV,1,2\n");
+}
+
+/* Discarding the queue of a suspended message (USBTMC ABORT_BULK_IN) does
+ * not leave a separator for what it writes next. */
+static void test_discard_while_suspended(void)
+{
+    setup();
+    send("COUN?;STAR;*OPC?");
+    viper_scpi_output_discard(&q);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    CHECK_STR(reply(), "1\n");
+}
+
 int main(void)
 {
     test_no_operation_is_immediate();
@@ -252,5 +354,10 @@ int main(void)
     test_device_clear_cancels();
     test_cls_and_rst_disarm_opc();
     test_stream_model();
+    test_refused_message_dropped_whole();
+    test_refused_block_framed();
+    test_input_until_busy();
+    test_no_srq_for_hidden_reply();
+    test_discard_while_suspended();
     return test_summary("test_overlapped");
 }

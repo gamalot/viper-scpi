@@ -121,7 +121,9 @@ void main_loop(void)
 {
     for (;;) {
         int c;
-        while ((c = ring_get()) >= 0) {
+        /* While a message waits in *WAI / *OPC?, leave the rest in the
+         * ring (bytes fed anyway would be refused with -363). */
+        while (!viper_scpi_busy(&scpi) && (c = ring_get()) >= 0) {
             viper_scpi_input_char(&scpi, (char)c);   /* '\n' runs the line */
         }
         viper_scpi_poll(&scpi);                      /* resumes *WAI / *OPC? */

@@ -88,6 +88,7 @@ void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char 
         size_t last = ((size_t)ctx->err_head + ctx->err_count - 1) % VIPER_SCPI_ERROR_QUEUE_SIZE;
         ctx->err_queue[last] = VIPER_SCPI_RES_ERR_QUEUE_OVERFLOW;
         ctx->err_info[last] = NULL;
+        ctx->esr = (uint8_t)(ctx->esr | VIPER_SCPI_ESR_DDE); /* -350 is a -3xx error */
     } else {
         size_t slot = ((size_t)ctx->err_head + ctx->err_count) % VIPER_SCPI_ERROR_QUEUE_SIZE;
         ctx->err_queue[slot] = (int16_t)code;
@@ -118,6 +119,7 @@ int viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info)
     }
     ctx->err_head = (uint8_t)((ctx->err_head + 1) % VIPER_SCPI_ERROR_QUEUE_SIZE);
     ctx->err_count--;
+    viper_scpi_srq_update(ctx); /* EAV may fall */
     return code;
 }
 
@@ -135,6 +137,7 @@ void viper_scpi_error_clear(viper_scpi_context_t *ctx)
 {
     ctx->err_head = 0;
     ctx->err_count = 0;
+    viper_scpi_srq_update(ctx); /* EAV falls */
 }
 
 uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx)
@@ -144,7 +147,10 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx)
     if (ctx->err_count > 0) {
         stb |= VIPER_SCPI_STB_EAV;
     }
-    if (viper_scpi_output_pending(ctx)) {
+    /* MAV: a complete reply waits to be read -- or, for *STB? itself, the
+     * running message has queued part of its reply (IEEE 488.2 sees the
+     * output queue). A suspended message's partial reply stays hidden. */
+    if (viper_scpi_output_pending(ctx) || (ctx->running && viper_scpi_output_queued(ctx))) {
         stb |= VIPER_SCPI_STB_MAV;
     }
     if ((ctx->esr & ctx->ese) != 0) {
@@ -166,15 +172,24 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx)
 
 void viper_scpi_srq_update(viper_scpi_context_t *ctx)
 {
-    bool now = (viper_scpi_status_byte(ctx) & ctx->sre & ~VIPER_SCPI_STB_MSS) != 0;
+    uint8_t stb = viper_scpi_status_byte(ctx);
+    bool now;
 
+    if (!viper_scpi_output_pending(ctx)) {
+        /* A reply still being produced cannot be read yet: it must not raise
+         * a request that a later *WAI or a -321 would leave unanswerable. */
+        stb = (uint8_t)(stb & ~VIPER_SCPI_STB_MAV);
+    }
+    now = (stb & ctx->sre & ~VIPER_SCPI_STB_MSS) != 0;
     if (now && ctx->srq_prev == 0) {
         ctx->srq_new = 1;
     }
     if (!now) {
         /* The reason for the request is gone before anyone polled: the
-         * device stops requesting service (IEEE 488.1 SRQS -> NPRS). */
+         * device stops requesting service (IEEE 488.1 SRQS -> NPRS), and a
+         * request not yet taken is no longer reported. */
         ctx->rqs = 0;
+        ctx->srq_new = 0;
     }
     ctx->srq_prev = now ? 1u : 0u;
 }
