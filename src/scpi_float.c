@@ -235,7 +235,7 @@ const viper_scpi_unit_t viper_scpi_units_celsius[] = {
  * limit just outside it. */
 static const struct {
     char name[3];
-    int8_t exp3;
+    int exp3;
 } prefixes[] = {
     { "EX", 6 }, { "PE", 5 }, { "MA", 2 }, { "T", 4 }, { "G", 3 }, { "K", 1 },
     { "M", -1 }, { "U", -2 }, { "N", -3 }, { "P", -4 }, { "F", -5 }, { "A", -6 },
