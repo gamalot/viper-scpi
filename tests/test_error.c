@@ -252,6 +252,50 @@ static void test_srq_edges_from_c(void)
     CHECK_INT(viper_scpi_serial_poll(&g_ctx), 0);
 }
 
+/* Built-ins check the form before the parameters, all the same way. */
+static void test_builtin_form_before_params(void)
+{
+    static const char *const undefined[] = {
+        "SYST:VERS 5", "SYST:ERR 5", "SYST:ERR:COUN 5", "STAT:PRES? 5",
+        "STAT:OPER:COND 5", "*IDN 5", "*STB 5", "*RST? 5",
+    };
+    fx_setup();
+    for (size_t i = 0; i < sizeof undefined / sizeof undefined[0]; i++) {
+        fx_send(undefined[i]);
+        CHECK_INT(viper_scpi_error_pop(&g_ctx), -113);
+    }
+    fx_send("SYST:VERS? 5");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -108);
+    fx_send("STAT:PRES 5");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -108);
+    fx_send("STAT:OPER:ENAB? 5");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -108);
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+}
+
+static viper_scpi_result_t cb_fail(viper_scpi_context_t *ctx)
+{
+    return viper_scpi_fail(ctx, 101, "relay K3 stuck");
+}
+
+/* viper_scpi_fail(): one entry with its detail, also for device codes;
+ * an out-of-range code is not wrapped into a standard one. */
+static void test_fail(void)
+{
+    static const viper_scpi_node_t root[] = { { "RELay", cb_fail, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_config_t cfg = { .root = root };
+    viper_scpi_context_t c;
+    const char *info;
+
+    (void)viper_scpi_init(&c, &cfg);
+    viper_scpi_input_buffer(&c, "REL\n", 4);
+    CHECK_INT(viper_scpi_error_pop_info(&c, &info), 101);
+    CHECK_STR(info, "relay K3 stuck");
+    CHECK_INT(viper_scpi_error_count(&c), 0);
+    viper_scpi_error_push(&c, 40000);
+    CHECK_INT(viper_scpi_error_pop(&c), -200);
+}
+
 int main(void)
 {
     test_queue_fifo();
@@ -267,5 +311,7 @@ int main(void)
     test_error_info();
     test_overflow_sets_dde();
     test_srq_edges_from_c();
+    test_builtin_form_before_params();
+    test_fail();
     return test_summary("test_error");
 }

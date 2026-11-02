@@ -24,9 +24,20 @@ extern "C" {
 
 /* ---- Core ---------------------------------------------------------- */
 
-/** Initialise @p ctx with @p cfg. Returns PARAM_INVALID on NULL arguments. */
-viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx,
-                                    const viper_scpi_config_t *cfg);
+/**
+ * Initialise @p ctx with @p cfg. Returns PARAM_INVALID on NULL arguments, or
+ * if the caller's viper_scpi_context_t has a different size than the
+ * library's -- the library and the application were compiled with different
+ * VIPER_SCPI_* limits (or headers of another version); @p ctx is then left
+ * untouched instead of being overrun.
+ */
+#define viper_scpi_init(ctx, cfg) \
+    viper_scpi_init_sized((ctx), (cfg), sizeof(viper_scpi_context_t))
+viper_scpi_result_t viper_scpi_init_sized(viper_scpi_context_t *ctx,
+                                          const viper_scpi_config_t *cfg, size_t ctx_size);
+/** viper_scpi_init() without the size check, for callers that need a
+ *  function (written in parentheses so the macro does not apply). */
+viper_scpi_result_t (viper_scpi_init)(viper_scpi_context_t *ctx, const viper_scpi_config_t *cfg);
 
 /**
  * Feed one byte. A '\n' executes the buffered line (in the message-exchange
@@ -76,6 +87,26 @@ void *viper_scpi_user_data(const viper_scpi_context_t *ctx);
 
 /** True if the command being executed was a query (header ended in '?'). */
 bool viper_scpi_is_query(const viper_scpi_context_t *ctx);
+
+/** For viper_scpi_expect(): the command does not exist in this form. */
+#define VIPER_SCPI_NO_FORM (-1)
+
+/**
+ * The usual first line of a callback: checks the command against the forms
+ * it supports and the number of parameters each takes. @p set_params and
+ * @p query_params are the most parameters the command and the query form
+ * accept, or VIPER_SCPI_NO_FORM if that form does not exist. Returns
+ * UNDEFINED_HEADER (-113) for a missing form, then PARAM_NOT_ALLOWED (-108)
+ * for surplus parameters, else OK:
+ *
+ *     res = viper_scpi_expect(ctx, 1, 0);             VOLT <v> and VOLT?
+ *     res = viper_scpi_expect(ctx, VIPER_SCPI_NO_FORM, 0);   MEAS? only
+ *     if (res != VIPER_SCPI_RES_OK) return res;
+ *
+ * Missing parameters are left to the parsers (-109).
+ */
+viper_scpi_result_t viper_scpi_expect(const viper_scpi_context_t *ctx, int set_params,
+                                      int query_params);
 
 /**
  * Numeric suffix of the @p index-th suffix-capable ("NAME#") node of the
@@ -223,7 +254,9 @@ void viper_scpi_result_text(viper_scpi_context_t *ctx, const char *str);
 
 /* ---- Error queue ---------------------------------------------------- */
 
-/** Append an error (also sets the matching ESR bit). Overflow -> -350. */
+/** Append an error (also sets the matching ESR bit). Overflow -> -350.
+ *  SCPI error numbers are -32768..32767; a code outside that range is a
+ *  programming error and is queued as -200. */
 void viper_scpi_error_push(viper_scpi_context_t *ctx, int code);
 /**
  * viper_scpi_error_push() with detail that SYSTem:ERRor? appends to the
@@ -232,6 +265,16 @@ void viper_scpi_error_push(viper_scpi_context_t *ctx, int code);
  * literal). If the queue is full the entry becomes -350 without detail.
  */
 void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char *info);
+/**
+ * Queue @p code with optional @p detail (as viper_scpi_error_push_info()) and
+ * return VIPER_SCPI_RES_QUEUED, so a callback or stream handler can fail
+ * with detail in one statement without the error being queued twice:
+ *
+ *     if (v > 30.0) return viper_scpi_fail(ctx, -222, "VOLT max is 30 V");
+ *
+ * Also takes device-defined codes (101, ...) as a plain int.
+ */
+viper_scpi_result_t viper_scpi_fail(viper_scpi_context_t *ctx, int code, const char *detail);
 /** Remove the oldest error; returns 0 if the queue is empty. */
 int viper_scpi_error_pop(viper_scpi_context_t *ctx);
 /** viper_scpi_error_pop() that also returns the entry's detail (or NULL). */
@@ -285,6 +328,18 @@ bool viper_scpi_busy(const viper_scpi_context_t *ctx);
 /** Resume a suspended message if no operation is pending; call it from the
  *  main loop. Does nothing otherwise. */
 void viper_scpi_poll(viper_scpi_context_t *ctx);
+
+/**
+ * Finish the running command later, for a query that needs time (an ADC
+ * that averages, a sweep): call viper_scpi_op_begin() and this, then return
+ * OK without a result. The message is suspended like at *WAI; once no
+ * operation is pending, viper_scpi_poll() calls the same callback again,
+ * with the same parameters and suffixes and viper_scpi_resumed() true, and
+ * that call writes the result. Only valid inside a command callback.
+ */
+void viper_scpi_defer(viper_scpi_context_t *ctx);
+/** True in the call viper_scpi_poll() makes to finish a deferred command. */
+bool viper_scpi_resumed(const viper_scpi_context_t *ctx);
 
 /* ---- Status registers ------------------------------------------------ */
 

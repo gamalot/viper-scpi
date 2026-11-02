@@ -39,6 +39,9 @@ static viper_scpi_result_t up_stream(viper_scpi_context_t *ctx, viper_scpi_strea
         if (s_fail_at == 2) {
             return VIPER_SCPI_RES_ERR_OUT_OF_MEMORY;
         }
+        if (s_fail_at == 3) {
+            return viper_scpi_fail(ctx, -257, "flash full");
+        }
         for (size_t i = 0; i < len; i++) {
             if (data[i] != pattern_byte(s_received + (uint32_t)i)) {
                 s_bad_bytes++;
@@ -357,6 +360,23 @@ static void test_reply_terminated_when_rest_dropped(void)
     CHECK_STR(reply(), "3\n");
 }
 
+/* A handler that fails with viper_scpi_fail() stops the block like any
+ * error, and the error is queued once, with its detail. */
+static void test_handler_fail_with_detail(void)
+{
+    const char *info;
+
+    setup();
+    s_fail_at = 3;
+    send_block("MMEM:UPL ", 300, 300, ";*OPC?");
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_data_calls, 1);
+    CHECK_INT(viper_scpi_error_pop_info(&q, &info), -257);
+    CHECK_STR(info, "flash full");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_STR(reply(), "1\n");
+}
+
 int main(void)
 {
     test_large_upload();
@@ -371,5 +391,6 @@ int main(void)
     test_tail_white_space();
     test_path_after_streamed_unit();
     test_reply_terminated_when_rest_dropped();
+    test_handler_fail_with_detail();
     return test_summary("test_stream");
 }

@@ -77,19 +77,45 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 - `viper_scpi_result_block_fill()` writes the full length into the block
   header on 16-bit `size_t` targets (it wrote the length modulo 65536 and
   then produced every byte, so the host lost framing).
+- A `write` hook that returns less than it was given ends that response
+  message: the rest, terminator included, is not written and -321 is queued.
+  The short count was ignored, so a host read a cut-off value (`12` for
+  `12.5`) as a complete one.
+- An error code outside -32768..32767 is queued as -200 instead of being
+  wrapped into another code (40000 read back as -25536).
 - The compile-time limits are checked: a value outside the documented range
   (for example `VIPER_SCPI_ERROR_QUEUE_SIZE` 256, which wrapped the queue
   count) is a compile error.
 
 ### Added
 
+- `viper_scpi_expect(ctx, set_params, query_params)`: the usual first line of
+  a callback; -113 for a form the command does not have
+  (`VIPER_SCPI_NO_FORM`), -108 for surplus parameters. The built-in commands
+  use it, so all of them now check the form before the parameters
+  (`SYST:VERS 5` is -113 like `*IDN 5`, not -108).
+- `cfg.common`: the instrument's own common commands (`*SAV`, `*RCL`,
+  `*OPT?`, ...), searched before the built-in ones, which they may replace;
+  `cfg.clear` is called by `*CLS`, and `cfg.self_test` gives `*TST?` its
+  result (it always answered 0).
+- `viper_scpi_defer()` and `viper_scpi_resumed()`: a slow query suspends its
+  message and is called again by `viper_scpi_poll()` to write its result once
+  no operation is pending, instead of blocking the main loop.
+- `viper_scpi_fail(ctx, code, detail)` queues an error with detail and
+  returns `VIPER_SCPI_RES_QUEUED`, so callbacks and stream handlers fail in
+  one statement without queuing the error twice, also with device codes.
+- `viper_scpi_init()` is a macro that passes `sizeof(viper_scpi_context_t)`
+  to the new `viper_scpi_init_sized()`, which refuses (-220, context
+  untouched) a context whose size differs from the library's: the library
+  and the application were built with different limits. `(viper_scpi_init)`
+  remains a function.
 - `viper_scpi_input_until_busy()`: feeds a chunk up to the message that
   suspends execution and returns how many bytes it consumed, so a transport
   can keep pipelined commands instead of having them refused.
 
 ### Changed
 
-- The context grew by 4 bytes on Cortex-M (440).
+- The context grew by 8 bytes on Cortex-M (444).
 - Header resolution rejects a sibling whose required mnemonic starts with a
   different letter before parsing its pattern, and the relative-path
   fallback no longer copies the path (which linked `memmove` into every

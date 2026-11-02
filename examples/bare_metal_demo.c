@@ -13,8 +13,11 @@ static bool g_output;
 
 static viper_scpi_result_t cmd_meas_volt_dc(viper_scpi_context_t *ctx)
 {
-    if (!viper_scpi_is_query(ctx)) {
-        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
+    /* Query only, without parameters. */
+    viper_scpi_result_t res = viper_scpi_expect(ctx, VIPER_SCPI_NO_FORM, 0);
+
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
     }
     viper_scpi_result_double(ctx, g_output ? g_voltage : 0.0);
     return VIPER_SCPI_RES_OK;
@@ -23,8 +26,11 @@ static viper_scpi_result_t cmd_meas_volt_dc(viper_scpi_context_t *ctx)
 static viper_scpi_result_t cmd_source_volt(viper_scpi_context_t *ctx)
 {
     double v;
-    viper_scpi_result_t res;
+    viper_scpi_result_t res = viper_scpi_expect(ctx, 1, 0); /* VOLT <v>, VOLT? */
 
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
     if (viper_scpi_is_query(ctx)) {
         viper_scpi_result_double(ctx, g_voltage);
         return VIPER_SCPI_RES_OK;
@@ -43,8 +49,11 @@ static viper_scpi_result_t cmd_source_volt(viper_scpi_context_t *ctx)
 static viper_scpi_result_t cmd_output_state(viper_scpi_context_t *ctx)
 {
     bool on;
-    viper_scpi_result_t res;
+    viper_scpi_result_t res = viper_scpi_expect(ctx, 1, 0);
 
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
     if (viper_scpi_is_query(ctx)) {
         viper_scpi_result_bool(ctx, g_output);
         return VIPER_SCPI_RES_OK;

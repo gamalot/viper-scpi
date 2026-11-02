@@ -24,9 +24,23 @@ as it is produced, in one or more pieces, ending with `\n`.
 static size_t tcp_write(void *user, const char *data, size_t len)
 {
     struct conn *c = user;              /* cfg.user_data */
-    return net_send(c->sock, data, len);
+    size_t done = 0;
+
+    while (done < len) {                /* blocking socket: send it all */
+        long k = net_send(c->sock, data + done, len - done);
+        if (k <= 0) {
+            break;                      /* connection lost */
+        }
+        done += (size_t)k;
+    }
+    return done;
 }
 ```
+
+`write` must take all the bytes it is given (block or buffer). If it returns
+less, the library writes nothing more of that response message, terminator
+included, and queues -321, so the host times out instead of reading a cut-off
+value as valid.
 
 Input: call `viper_scpi_input_buffer()` with whatever the driver received; a
 `\n` executes the message, and `\r` is white space, so `\r\n` works too. If

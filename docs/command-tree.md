@@ -28,8 +28,17 @@ static const viper_scpi_node_t root[] = {
   callback *and* children (`SYSTem:ERRor?` and `SYSTem:ERRor:NEXT?` both exist).
 - `children` is NULL for a leaf.
 - The callback serves both the command and the query form; it tells them apart
-  with `viper_scpi_is_query()`. A callback that only supports one form returns
-  `VIPER_SCPI_RES_ERR_UNDEFINED_HEADER` (-113) for the other, as the built-ins do.
+  with `viper_scpi_is_query()`. Start it with
+  `viper_scpi_expect(ctx, set_params, query_params)`: it returns -113 for a
+  form the command does not have (`VIPER_SCPI_NO_FORM`) and -108 for more
+  parameters than that form takes, as the built-ins do:
+
+  ```c
+  viper_scpi_result_t res = viper_scpi_expect(ctx, VIPER_SCPI_NO_FORM, 0); /* MEAS? only */
+  if (res != VIPER_SCPI_RES_OK) {
+      return res;
+  }
+  ```
 
 ## Long and short forms
 
@@ -114,8 +123,26 @@ and `*TRG` when the configuration has a `trigger` hook.
 | `*IDN?` | `manufacturer,model,serial,firmware` from the configuration | `idn_*` fields |
 | `*RST` | disarms `*OPC`, calls the hook | `cfg.reset`: restore the instrument's reset state |
 | `*TRG` | calls the hook | `cfg.trigger`; without it `*TRG` is -113 |
-| `*TST?` | answers 0 (passed) | -- |
+| `*TST?` | answers the hook's result, or 0 (passed) without one | `cfg.self_test` |
+| `*CLS` | clears the error queue, ESR and STATus events, then calls the hook | `cfg.clear`: clear your own event registers |
 | others | status registers, see [Status and errors](status-and-errors.md) | -- |
+
+The instrument's own common commands (`*SAV`, `*RCL`, `*OPT?`, `*CAL?`, ...)
+go in `cfg.common`, a node list whose patterns are the names without `*`:
+
+```c
+static const viper_scpi_node_t common[] = {
+    { "SAV", cmd_sav, NULL },
+    { "RCL", cmd_rcl, NULL },
+    { "OPT", cmd_opt, NULL },
+    VIPER_SCPI_NODE_END
+};
+/* cfg: .common = common */
+```
+
+It is searched before the built-in table, so an entry there also replaces a
+built-in command. Like the built-ins, these commands do not change the path
+for relative headers.
 
 ## Built-in SCPI commands
 

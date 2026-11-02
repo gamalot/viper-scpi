@@ -35,7 +35,7 @@ Other documents:
 viper-scpi is a SCPI / IEEE 488.2 command parser for bare-metal
 microcontrollers, in ISO C99:
 
-- **Zero allocation.** One statically allocated context (440 bytes on
+- **Zero allocation.** One statically allocated context (444 bytes on
   Cortex-M with default limits); command trees live in Flash. No `malloc`, no
   writable static data in the library itself.
 - **Non-blocking.** Bytes go in, callbacks run, responses come out. Slow

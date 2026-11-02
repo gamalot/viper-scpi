@@ -117,10 +117,15 @@ static const viper_scpi_error_text_t my_errors[] = {
 
 ```c
 if (v > 30.0) {
-    viper_scpi_error_push_info(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE, "VOLT max is 30 V");
-    return VIPER_SCPI_RES_OK;   /* already queued */
+    return viper_scpi_fail(ctx, VIPER_SCPI_RES_ERR_OUT_OF_RANGE, "VOLT max is 30 V");
 }
 ```
+
+`viper_scpi_fail()` queues the code with its detail and returns
+`VIPER_SCPI_RES_QUEUED`, which tells the library the error is already queued.
+It takes device-defined codes as a plain `int` (`viper_scpi_fail(ctx, 101,
+"relay K3")`), and works in stream handlers too, where it stops the block.
+Codes outside -32768..32767 are queued as -200.
 
 `SYSTem:ERRor?` then answers `-222,"Data out of range;VOLT max is 30 V"`. The
 detail string is **not copied**: pass a string literal or other static storage,

@@ -341,6 +341,86 @@ static void test_expression_data_is_one_parameter(void)
     CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
 }
 
+static size_t s_short_budget;
+static char s_short_out[64];
+static size_t s_short_len;
+
+/* A transport that takes at most s_short_budget bytes per call. */
+static size_t short_write(void *user, const char *data, size_t len)
+{
+    size_t k = len < s_short_budget ? len : s_short_budget;
+    (void)user;
+    memcpy(s_short_out + s_short_len, data, k);
+    s_short_len += k;
+    s_short_out[s_short_len] = '\0';
+    return k;
+}
+
+static viper_scpi_result_t cb_pi(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "3.14159");
+    return VIPER_SCPI_RES_OK;
+}
+
+/* A short write ends the response message: no truncated value with a
+ * terminator that would read as valid, and -321 in the queue. */
+static void test_short_write(void)
+{
+    static const viper_scpi_node_t root[] = { { "PI", cb_pi, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_config_t cfg = { .root = root, .write = short_write };
+    viper_scpi_context_t c;
+
+    (void)viper_scpi_init(&c, &cfg);
+    s_short_budget = 3;
+    viper_scpi_input_buffer(&c, "PI?;PI?\n", 8);
+    CHECK_STR(s_short_out, "3.1");
+    CHECK_INT(viper_scpi_error_pop(&c), -321);
+    CHECK_INT(viper_scpi_error_count(&c), 0);
+    s_short_budget = 64;
+    s_short_len = 0;
+    viper_scpi_input_buffer(&c, "PI?\n", 4);
+    CHECK_STR(s_short_out, "3.14159\n");          /* the next reply is whole */
+}
+
+/* A context compiled with other limits than the library is refused. */
+static void test_init_size_check(void)
+{
+    static const viper_scpi_config_t cfg = { .root = NULL };
+    viper_scpi_context_t c;
+    unsigned char *raw = (unsigned char *)&c;
+
+    memset(&c, 0xA5, sizeof c);
+    CHECK_INT(viper_scpi_init_sized(&c, &cfg, sizeof c - 8), VIPER_SCPI_RES_ERR_PARAM_INVALID);
+    CHECK(raw[0] == 0xA5 && raw[sizeof c - 1] == 0xA5);
+    CHECK_INT(viper_scpi_init(&c, &cfg), VIPER_SCPI_RES_OK);
+    CHECK_INT((viper_scpi_init)(&c, &cfg), VIPER_SCPI_RES_OK);
+}
+
+static viper_scpi_result_t cb_expect(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_t res = viper_scpi_expect(ctx, 1, VIPER_SCPI_NO_FORM);
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    return viper_scpi_param_int32(ctx, 0, &g_count);
+}
+
+static void test_expect(void)
+{
+    static const viper_scpi_node_t root[] = { { "SET", cb_expect, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_config_t cfg = { .root = root };
+    viper_scpi_context_t c;
+
+    (void)viper_scpi_init(&c, &cfg);
+    g_count = 0;
+    viper_scpi_input_buffer(&c, "SET 4\nSET 5,6\nSET? 1\nSET?\nSET\n", 30);
+    CHECK_INT(g_count, 4);
+    CHECK_INT(viper_scpi_error_pop(&c), -108);   /* SET 5,6 */
+    CHECK_INT(viper_scpi_error_pop(&c), -113);   /* SET? 1: form first */
+    CHECK_INT(viper_scpi_error_pop(&c), -113);   /* SET? */
+    CHECK_INT(viper_scpi_error_pop(&c), -109);   /* SET: left to the parser */
+}
+
 int main(void)
 {
     test_init_validation();
@@ -369,5 +449,8 @@ int main(void)
     test_user_data_and_null_write();
     test_ieee_white_space();
     test_expression_data_is_one_parameter();
+    test_short_write();
+    test_init_size_check();
+    test_expect();
     return test_summary("test_parser");
 }

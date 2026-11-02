@@ -21,7 +21,23 @@ static viper_scpi_result_t cb_count(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
+static int s_meas_calls;
+
+/* A slow query: starts the measurement, answers when resumed. */
+static viper_scpi_result_t cb_meas(viper_scpi_context_t *ctx)
+{
+    s_meas_calls++;
+    if (!viper_scpi_resumed(ctx)) {
+        viper_scpi_op_begin(ctx);
+        viper_scpi_defer(ctx);
+        return VIPER_SCPI_RES_OK;
+    }
+    viper_scpi_result_int(ctx, 40 + viper_scpi_suffix(ctx, 0, 1));
+    return VIPER_SCPI_RES_OK;
+}
+
 static const viper_scpi_node_t root[] = {
+    { "MEASure#", cb_meas, NULL },
     { "STARt", cb_start, NULL },
     { "COUNt", cb_count, NULL },
     VIPER_SCPI_NODE_END
@@ -341,6 +357,35 @@ static void test_discard_while_suspended(void)
     CHECK_STR(reply(), "1\n");
 }
 
+/* A deferred query keeps the message suspended and answers on resume, in
+ * order and with its own parameters and suffixes. */
+static void test_deferred_query(void)
+{
+    setup();
+    s_meas_calls = 0;
+    send("COUN?;MEAS2?;COUN?");
+    CHECK(viper_scpi_busy(&q));
+    CHECK(!viper_scpi_output_pending(&q));
+    CHECK_INT(s_count_calls, 1);                /* the unit after it waits */
+    viper_scpi_poll(&q);                        /* still measuring */
+    CHECK_INT(s_meas_calls, 1);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    CHECK_INT(s_meas_calls, 2);
+    CHECK(!viper_scpi_busy(&q));
+    CHECK_STR(reply(), "1;42;2\n");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+
+    /* Device clear cancels it. */
+    send("MEAS?");
+    viper_scpi_device_clear(&q);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    CHECK_INT(s_meas_calls, 3);
+    CHECK_STR(reply(), "");
+    CHECK(!viper_scpi_resumed(&q));
+}
+
 int main(void)
 {
     test_no_operation_is_immediate();
@@ -359,5 +404,6 @@ int main(void)
     test_input_until_busy();
     test_no_srq_for_hidden_reply();
     test_discard_while_suspended();
+    test_deferred_query();
     return test_summary("test_overlapped");
 }

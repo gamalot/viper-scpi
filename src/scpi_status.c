@@ -60,26 +60,27 @@ static viper_scpi_result_t status_access(viper_scpi_context_t *ctx, unsigned reg
     default: break;
     }
 
+    /* EVENt and CONDition are queries; the others set a register too. */
+    res = viper_scpi_expect(ctx, target != NULL ? 1 : VIPER_SCPI_NO_FORM, 0);
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
     if (viper_scpi_is_query(ctx)) {
-        res = viper_scpi_no_params(ctx);
-        if (res != VIPER_SCPI_RES_OK) {
-            return res;
-        }
         if (field == FIELD_EVENT) {
             viper_scpi_result_int(ctx, set->event);
             set->event = 0; /* reading the event register clears it */
             viper_scpi_srq_update(ctx);
         } else if (field == FIELD_CONDITION) {
             viper_scpi_result_int(ctx, set->condition);
-        } else {
+        } else if (target != NULL) {
             viper_scpi_result_int(ctx, *target);
         }
         return VIPER_SCPI_RES_OK;
     }
-
     if (target == NULL) {
-        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER; /* EVENt/CONDition are queries */
+        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER; /* refused by expect() already */
     }
+
     res = viper_scpi_param_register(ctx, (int32_t)STATUS_BITS, &v);
     if (res != VIPER_SCPI_RES_OK) {
         return res;
@@ -108,13 +109,10 @@ STATUS_CMD(ques_ntr, VIPER_SCPI_STATUS_QUES, FIELD_NTR)
 
 static viper_scpi_result_t cmd_preset(viper_scpi_context_t *ctx)
 {
-    viper_scpi_result_t res = viper_scpi_no_params(ctx);
+    viper_scpi_result_t res = viper_scpi_expect(ctx, 0, VIPER_SCPI_NO_FORM);
 
     if (res != VIPER_SCPI_RES_OK) {
         return res;
-    }
-    if (viper_scpi_is_query(ctx)) {
-        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
     viper_scpi_status_preset(ctx);
     return VIPER_SCPI_RES_OK;

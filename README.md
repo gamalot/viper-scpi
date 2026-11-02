@@ -211,6 +211,13 @@ operation is pending. Meanwhile:
   States). `*CLS` and `*RST` also disarm `*OPC`. The operations themselves
   belong to the application and are not touched.
 
+A query that needs time itself (`MEAS:CURR?` averaging an ADC) can answer
+later instead of blocking: its callback calls `viper_scpi_op_begin()` and
+`viper_scpi_defer()` and returns. The message is suspended as at `*WAI`; once
+no operation is pending, `viper_scpi_poll()` calls the same callback again,
+with its parameters and suffixes and `viper_scpi_resumed(ctx)` true, and that
+call writes the result.
+
 Call these functions from the same context as the input functions, not from
 an interrupt; an ISR should set a flag that the main loop turns into
 `viper_scpi_op_end()`.
@@ -406,6 +413,10 @@ the transport's packets). The rules:
 A callback runs when its node is the last mnemonic of a command. Inside it:
 
 - `viper_scpi_is_query(ctx)` tells `CMD?` from `CMD`.
+- `viper_scpi_expect(ctx, set_params, query_params)` is the usual first line:
+  it returns `-113` for a form the command does not have
+  (`VIPER_SCPI_NO_FORM`) and `-108` for surplus parameters, so
+  `viper_scpi_expect(ctx, 1, 0)` accepts `VOLT 5` and `VOLT?` only.
 - `viper_scpi_param_*` read parameters by zero-based index. They return
   `VIPER_SCPI_RES_OK` or an SCPI error code (`-104` data type, `-109` missing
   parameter, `-222` out of range, `-224` illegal value, ...).
@@ -418,7 +429,9 @@ A callback runs when its node is the last mnemonic of a command. Inside it:
   with `,`; responses of different commands on a line with `;`; the line ends
   with `\n`.
 - Return a non-zero `viper_scpi_result_t` to push that error onto the queue.
-  Use `viper_scpi_error_push()` for additional errors.
+  `return viper_scpi_fail(ctx, code, "detail");` queues a code (device codes
+  such as 101 too) with detail text, once. Use `viper_scpi_error_push()` for
+  additional errors.
 
 ## Error texts and detail
 
@@ -444,7 +457,25 @@ returns the detail to C code; `viper_scpi_error_text()` looks up a text the way
 
 Callbacks must not call the `viper_scpi_input_*` functions.
 
+## Common commands
+
+The IEEE 488.2 commands are built in (`*IDN?`, `*RST`, `*CLS`, `*OPC`,
+`*OPC?`, `*WAI`, `*STB?`, `*ESR?`, `*ESE`, `*SRE`, `*TST?`, `*TRG`). Hooks in
+the configuration connect them to the instrument: `reset` (`*RST`), `trigger`
+(`*TRG`), `clear` (`*CLS`, for device-specific event registers) and
+`self_test` (`*TST?`, which otherwise answers 0). The instrument's own common
+commands go in `cfg.common`, a node list with the names without `*`
+(`{ "SAV", cmd_sav, NULL }`); it is searched before the built-in ones, so an
+entry there also replaces one.
+
 ## Input handling
+
+`viper_scpi_init()` refuses (`-220`, context untouched) a context whose size
+differs from the library's -- the library and the application were built with
+different `VIPER_SCPI_*` limits. Define the limits identically for both. (It
+is a macro passing `sizeof(viper_scpi_context_t)` to
+`viper_scpi_init_sized()`; `(viper_scpi_init)(ctx, cfg)` is the plain
+function.)
 
 `viper_scpi_input_char()` / `viper_scpi_input_buffer()` accumulate a line and
 execute it on `\n`. CR, NUL, tab and the other control bytes are white space

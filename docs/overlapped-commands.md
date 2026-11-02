@@ -114,3 +114,28 @@ void on_adc_done(float value)    /* from the main loop */
 
 A controller then gets the effect of `READ?` by sending `INIT;*WAI;FETC?` as
 one message: `FETC?` runs only once the reading exists.
+
+## Slow queries: `viper_scpi_defer()`
+
+When the host just sends `READ?` (or `MEAS:CURR?`) and the answer takes time,
+the query itself can wait without blocking the main loop:
+
+```c
+static viper_scpi_result_t cmd_read(viper_scpi_context_t *ctx)   /* READ? */
+{
+    if (!viper_scpi_resumed(ctx)) {
+        adc_start_conversion();       /* on_adc_done() calls op_end() */
+        viper_scpi_op_begin(ctx);
+        viper_scpi_defer(ctx);        /* finish me later */
+        return VIPER_SCPI_RES_OK;
+    }
+    viper_scpi_result_double_digits(ctx, g_reading, 7);
+    return VIPER_SCPI_RES_OK;
+}
+```
+
+The message is suspended as at `*WAI` (`viper_scpi_busy()` is true, the reply
+is not readable yet). Once no operation is pending, `viper_scpi_poll()` calls
+the callback again with the same parameters and suffixes and
+`viper_scpi_resumed()` true; that call writes the result, and the rest of the
+message runs. `viper_scpi_device_clear()` cancels it like any suspension.

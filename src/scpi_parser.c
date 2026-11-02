@@ -27,16 +27,17 @@ static void emit(viper_scpi_context_t *ctx, const char *s, size_t n)
 {
     const viper_scpi_config_t *cfg = ctx->cfg;
 
-    if (n == 0) {
+    if (n == 0 || ctx->out_overflow) {
         return;
     }
     if (!queued(ctx)) {
-        if (cfg->write != NULL) {
-            (void)cfg->write(ctx->user_data, s, n);
+        if (cfg->write != NULL && cfg->write(ctx->user_data, s, n) < n) {
+            /* The transport took only part of it. The rest of this response
+             * message, terminator included, is not written: a reply cut
+             * short must not read as a complete, valid one. */
+            ctx->out_overflow = 1;
+            viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_OUT_OF_MEMORY);
         }
-        return;
-    }
-    if (ctx->out_overflow) {
         return;
     }
     if (n > cfg->output_size - ctx->out_len) {
@@ -244,7 +245,7 @@ void viper_scpi_result_block_fill(viper_scpi_context_t *ctx, uint32_t len,
     }
 
     /* Stream model: produce and write it now, a chunk at a time. */
-    for (uint32_t off = 0; off < len;) {
+    for (uint32_t off = 0; off < len && !ctx->out_overflow;) {
         uint8_t chunk[64];
         size_t k = (len - off < sizeof chunk) ? (size_t)(len - off) : sizeof chunk;
         fill(fill_user, chunk, off, k);
@@ -297,10 +298,16 @@ bool viper_scpi_is_query(const viper_scpi_context_t *ctx)
     return ctx->is_query != 0;
 }
 
-viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx)
+viper_scpi_result_t viper_scpi_expect(const viper_scpi_context_t *ctx, int set_params,
+                                      int query_params)
 {
-    return ctx->param_count > 0 ? VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED
-                                : VIPER_SCPI_RES_OK;
+    int max = ctx->is_query ? query_params : set_params;
+
+    if (max < 0) {
+        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
+    }
+    return ctx->param_count > (size_t)max ? VIPER_SCPI_RES_ERR_PARAM_NOT_ALLOWED
+                                          : VIPER_SCPI_RES_OK;
 }
 
 /* ---- Tokenizer ----------------------------------------------------------- */
@@ -649,7 +656,11 @@ static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *
     const viper_scpi_node_t *node = NULL;
     viper_scpi_result_t res = resolve_header(ctx, h, hlen, &node);
 
-    return (res == VIPER_SCPI_RES_OK) ? node->callback(ctx) : res;
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    ctx->deferred = node->callback; /* for viper_scpi_defer() */
+    return node->callback(ctx);
 }
 
 static viper_scpi_result_t dispatch(viper_scpi_context_t *ctx, const char *h, size_t hlen)
@@ -659,7 +670,7 @@ static viper_scpi_result_t dispatch(viper_scpi_context_t *ctx, const char *h, si
         size_t nlen = hlen - 1 - (query ? 1u : 0u);
 
         ctx->is_query = query ? 1 : 0;
-        return viper_scpi_ieee488_dispatch(ctx, h + 1, nlen, query);
+        return viper_scpi_ieee488_dispatch(ctx, h + 1, nlen);
     }
     return dispatch_tree(ctx, h, hlen);
 }
@@ -674,6 +685,7 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
     ctx->unit_has_output = 0;
     ctx->param_count = 0;
     ctx->is_query = 0;
+    ctx->deferred = NULL; /* set for tree and user common commands */
 
     while (n > 0 && viper_scpi_is_space(*s)) {
         s++;
@@ -691,7 +703,7 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
     if (res == VIPER_SCPI_RES_OK) {
         res = dispatch(ctx, s, hlen);
     }
-    if (res != VIPER_SCPI_RES_OK) {
+    if (res != VIPER_SCPI_RES_OK && res != VIPER_SCPI_RES_QUEUED) {
         viper_scpi_error_push(ctx, (int)res);
     }
     viper_scpi_srq_update(ctx);
@@ -758,11 +770,13 @@ static bool stream_call(viper_scpi_context_t *ctx, viper_scpi_stream_event_t ev,
 {
     viper_scpi_result_t res = ctx->stream(ctx, ev, data, len);
 
-    if (res != VIPER_SCPI_RES_OK) {
-        viper_scpi_error_push(ctx, (int)res);
-        return false;
+    if (res == VIPER_SCPI_RES_OK) {
+        return true;
     }
-    return true;
+    if (res != VIPER_SCPI_RES_QUEUED) {
+        viper_scpi_error_push(ctx, (int)res);
+    }
+    return false;
 }
 
 /*
@@ -954,9 +968,10 @@ static void store(viper_scpi_context_t *ctx, char c)
 
 /* ---- Public input API --------------------------------------------------------- */
 
-viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx, const viper_scpi_config_t *cfg)
+viper_scpi_result_t viper_scpi_init_sized(viper_scpi_context_t *ctx,
+                                          const viper_scpi_config_t *cfg, size_t ctx_size)
 {
-    if (ctx == NULL || cfg == NULL) {
+    if (ctx == NULL || cfg == NULL || ctx_size != sizeof *ctx) {
         return VIPER_SCPI_RES_ERR_PARAM_INVALID;
     }
     memset(ctx, 0, sizeof *ctx);
@@ -965,6 +980,11 @@ viper_scpi_result_t viper_scpi_init(viper_scpi_context_t *ctx, const viper_scpi_
     ctx->esr = VIPER_SCPI_ESR_PON; /* IEEE 488.2 11.5.1.1.2: power on */
     viper_scpi_status_preset(ctx);
     return VIPER_SCPI_RES_OK;
+}
+
+viper_scpi_result_t (viper_scpi_init)(viper_scpi_context_t *ctx, const viper_scpi_config_t *cfg)
+{
+    return viper_scpi_init_sized(ctx, cfg, sizeof *ctx);
 }
 
 void viper_scpi_input_discard(viper_scpi_context_t *ctx)
@@ -1329,7 +1349,39 @@ void viper_scpi_poll(viper_scpi_context_t *ctx)
         ctx->wait = VIPER_SCPI_WAIT_NONE;
         ctx->unit_has_output = 0;
         viper_scpi_result_int(ctx, 1);
+    } else if (ctx->wait == VIPER_SCPI_WAIT_DEFER) {
+        /* Run the deferred command again to finish it. Its parameters,
+         * suffixes and form are still in the context: nothing else has run
+         * since. */
+        viper_scpi_result_t res;
+
+        ctx->wait = VIPER_SCPI_WAIT_NONE;
+        ctx->unit_has_output = 0;
+        ctx->resumed = 1;
+        ctx->running = 1;
+        res = ctx->deferred(ctx);
+        ctx->running = 0;
+        ctx->resumed = 0;
+        if (res != VIPER_SCPI_RES_OK && res != VIPER_SCPI_RES_QUEUED) {
+            viper_scpi_error_push(ctx, (int)res);
+        }
+        viper_scpi_srq_update(ctx);
+        if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
+            return; /* deferred again */
+        }
     }
     ctx->wait = VIPER_SCPI_WAIT_NONE;
     run_line(ctx);
+}
+
+void viper_scpi_defer(viper_scpi_context_t *ctx)
+{
+    if (ctx->running && ctx->deferred != NULL) {
+        ctx->wait = VIPER_SCPI_WAIT_DEFER;
+    }
+}
+
+bool viper_scpi_resumed(const viper_scpi_context_t *ctx)
+{
+    return ctx->resumed != 0;
 }

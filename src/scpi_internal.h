@@ -48,8 +48,7 @@ extern const viper_scpi_node_t viper_scpi_builtin_root[];
 
 /** Dispatch a common command (name without '*' and '?'). */
 viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
-                                                const char *name, size_t len,
-                                                bool query);
+                                                const char *name, size_t len);
 
 /** Quoted string response made of @p a, then ";" and @p b if @p b is not
  *  NULL, with embedded quotes doubled. */
@@ -63,11 +62,8 @@ viper_scpi_numeric_kw_t viper_scpi_numeric_keyword(const viper_scpi_context_t *c
 viper_scpi_result_t viper_scpi_param_register(const viper_scpi_context_t *ctx, int32_t max,
                                               int32_t *out);
 
-/** PARAM_NOT_ALLOWED if the command carries parameters, else OK. */
-viper_scpi_result_t viper_scpi_no_params(const viper_scpi_context_t *ctx);
-
 /** Why message execution is suspended (ctx->wait). */
-enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ };
+enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ, VIPER_SCPI_WAIT_DEFER };
 
 /** STATus subtree, hooked into the built-in root. */
 extern const viper_scpi_node_t viper_scpi_status_children[];

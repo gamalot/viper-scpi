@@ -43,6 +43,9 @@ static viper_scpi_result_t cmd_cls(viper_scpi_context_t *ctx)
     ctx->opc_armed = 0; /* back to Operation Complete Command Idle State */
     ctx->status[VIPER_SCPI_STATUS_OPER].event = 0; /* SCPI: *CLS clears the */
     ctx->status[VIPER_SCPI_STATUS_QUES].event = 0; /* status event registers */
+    if (ctx->cfg->clear != NULL) {
+        ctx->cfg->clear(ctx);
+    }
     return VIPER_SCPI_RES_OK;
 }
 
@@ -87,7 +90,8 @@ static viper_scpi_result_t cmd_esr(viper_scpi_context_t *ctx)
 
 static viper_scpi_result_t cmd_tst(viper_scpi_context_t *ctx)
 {
-    viper_scpi_result_int(ctx, 0); /* 0 = self test passed */
+    viper_scpi_result_int(ctx, ctx->cfg->self_test != NULL ? ctx->cfg->self_test(ctx)
+                                                           : 0); /* 0 = passed */
     return VIPER_SCPI_RES_OK;
 }
 
@@ -145,20 +149,26 @@ static const struct {
 };
 
 viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
-                                                const char *name, size_t len,
-                                                bool query)
+                                                const char *name, size_t len)
 {
+    /* The instrument's own table first: it may add or replace commands. */
+    for (const viper_scpi_node_t *n = ctx->cfg->common; n != NULL && n->pattern != NULL; n++) {
+        if (n->callback != NULL && viper_scpi_pattern_match(n->pattern, name, len)) {
+            ctx->deferred = n->callback; /* for viper_scpi_defer() */
+            return n->callback(ctx);
+        }
+    }
     for (size_t i = 0; i < sizeof common_cmds / sizeof common_cmds[0]; i++) {
         /* The names are all upper case, so only the full name matches. */
         if (!viper_scpi_pattern_match(common_cmds[i].name, name, len)) {
             continue;
         }
-        if ((common_cmds[i].kind & (query ? KIND_QUERY : KIND_COMMAND)) == 0) {
-            break;
-        }
-        /* *ESE and *SRE require a value; a query takes none. */
-        if (!common_cmds[i].takes_params || query) {
-            viper_scpi_result_t res = viper_scpi_no_params(ctx);
+        {
+            /* *ESE and *SRE take a value; no query takes one. */
+            int set = (common_cmds[i].kind & KIND_COMMAND) == 0 ? VIPER_SCPI_NO_FORM
+                      : common_cmds[i].takes_params ? 1 : 0;
+            int qry = (common_cmds[i].kind & KIND_QUERY) == 0 ? VIPER_SCPI_NO_FORM : 0;
+            viper_scpi_result_t res = viper_scpi_expect(ctx, set, qry);
             if (res != VIPER_SCPI_RES_OK) {
                 return res;
             }

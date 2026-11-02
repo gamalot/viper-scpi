@@ -81,6 +81,10 @@ void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char 
     if (code == 0) {
         return;
     }
+    if (code < -32768 || code > 32767) {
+        code = VIPER_SCPI_RES_ERR_EXECUTION; /* would not survive int16_t */
+        info = NULL;
+    }
     viper_scpi_event_set(ctx, esr_bit_for(code));
 
     if (ctx->err_count >= VIPER_SCPI_ERROR_QUEUE_SIZE) {
@@ -101,6 +105,12 @@ void viper_scpi_error_push_info(viper_scpi_context_t *ctx, int code, const char 
 void viper_scpi_error_push(viper_scpi_context_t *ctx, int code)
 {
     viper_scpi_error_push_info(ctx, code, NULL);
+}
+
+viper_scpi_result_t viper_scpi_fail(viper_scpi_context_t *ctx, int code, const char *detail)
+{
+    viper_scpi_error_push_info(ctx, code, detail);
+    return VIPER_SCPI_RES_QUEUED;
 }
 
 int viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info)
@@ -231,13 +241,10 @@ static viper_scpi_result_t cmd_syst_err_next(viper_scpi_context_t *ctx)
 {
     int code;
     const char *info;
-    viper_scpi_result_t res = viper_scpi_no_params(ctx);
+    viper_scpi_result_t res = viper_scpi_expect(ctx, VIPER_SCPI_NO_FORM, 0);
 
     if (res != VIPER_SCPI_RES_OK) {
         return res;
-    }
-    if (!viper_scpi_is_query(ctx)) {
-        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
     code = viper_scpi_error_pop_info(ctx, &info);
     viper_scpi_result_int(ctx, code);
@@ -247,13 +254,10 @@ static viper_scpi_result_t cmd_syst_err_next(viper_scpi_context_t *ctx)
 
 static viper_scpi_result_t cmd_syst_err_count(viper_scpi_context_t *ctx)
 {
-    viper_scpi_result_t res = viper_scpi_no_params(ctx);
+    viper_scpi_result_t res = viper_scpi_expect(ctx, VIPER_SCPI_NO_FORM, 0);
 
     if (res != VIPER_SCPI_RES_OK) {
         return res;
-    }
-    if (!viper_scpi_is_query(ctx)) {
-        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
     viper_scpi_result_int(ctx, (int32_t)viper_scpi_error_count(ctx));
     return VIPER_SCPI_RES_OK;
@@ -261,13 +265,10 @@ static viper_scpi_result_t cmd_syst_err_count(viper_scpi_context_t *ctx)
 
 static viper_scpi_result_t cmd_syst_version(viper_scpi_context_t *ctx)
 {
-    viper_scpi_result_t res = viper_scpi_no_params(ctx);
+    viper_scpi_result_t res = viper_scpi_expect(ctx, VIPER_SCPI_NO_FORM, 0);
 
     if (res != VIPER_SCPI_RES_OK) {
         return res;
-    }
-    if (!viper_scpi_is_query(ctx)) {
-        return VIPER_SCPI_RES_ERR_UNDEFINED_HEADER;
     }
     viper_scpi_result_text(ctx, "1999.0");
     return VIPER_SCPI_RES_OK;

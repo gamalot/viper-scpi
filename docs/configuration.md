@@ -19,6 +19,9 @@ designated initializers; every field is optional and zero means the default.
 | `stream_nodes` | streaming block input, see [Large data](large-data.md) |
 | `error_texts` | your error texts, see [Status and errors](status-and-errors.md) |
 | `options` | leniencies, below |
+| `common` | your own common commands (`*SAV`, `*OPT?`, ...), see [Command tree](command-tree.md#common-commands) |
+| `clear` | called by `*CLS` after the library's status data is cleared |
+| `self_test` | `*TST?` answers its result; without it `*TST?` answers 0 |
 
 Several instruments or interfaces in one firmware (a USBTMC and a UART port,
 say) each get their own context and configuration; trees and tables can be
@@ -37,7 +40,9 @@ shared.
 
 Override with `-D` for the library **and** every file that includes its
 headers (they change the size of the context). A value outside the range
-shown is a compile error.
+shown is a compile error, and `viper_scpi_init()` returns -220 without
+touching the context if the application's context size differs from the
+library's.
 
 | Macro | Default | Meaning |
 | --- | --- | --- |
@@ -56,8 +61,8 @@ data (CI fails the build if it ever does).
 
 | | Size with default limits |
 | --- | --- |
-| `viper_scpi_context_t` on Cortex-M (32-bit) | 440 bytes |
-| `viper_scpi_context_t` on a 64-bit host | 656 bytes |
+| `viper_scpi_context_t` on Cortex-M (32-bit) | 444 bytes |
+| `viper_scpi_context_t` on a 64-bit host | 664 bytes |
 | output buffer (message-exchange model) | `output_size`, your choice |
 | stack | about 0.6 KB for a typical three-level command, up to about 2 KB for a header of 8 mnemonics through optional nodes that finally fails to match, plus your callback's own use (see below) |
 

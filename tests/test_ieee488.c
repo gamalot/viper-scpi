@@ -274,6 +274,74 @@ static void test_register_values(void)
     CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
 }
 
+static int s_saved = -1;
+static int s_clears;
+
+static viper_scpi_result_t cb_sav(viper_scpi_context_t *ctx)
+{
+    int32_t slot;
+    viper_scpi_result_t res = viper_scpi_expect(ctx, 1, VIPER_SCPI_NO_FORM);
+    if (res == VIPER_SCPI_RES_OK) {
+        res = viper_scpi_param_int32_kw(ctx, 0, 0, 9, 0, &slot);
+    }
+    if (res == VIPER_SCPI_RES_OK) {
+        s_saved = (int)slot;
+    }
+    return res;
+}
+
+static viper_scpi_result_t cb_opt(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "GPIB,DIGIO");
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t cb_my_idn(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "MINE");
+    return VIPER_SCPI_RES_OK;
+}
+
+static int32_t self_test_fails(viper_scpi_context_t *ctx)
+{
+    (void)ctx;
+    return 3;
+}
+
+static void on_clear(viper_scpi_context_t *ctx)
+{
+    (void)ctx;
+    s_clears++;
+}
+
+/* The instrument's own common commands and the *CLS / *TST? hooks. */
+static void test_user_common_commands(void)
+{
+    static const viper_scpi_node_t common[] = {
+        { "SAV", cb_sav, NULL },
+        { "OPT", cb_opt, NULL },
+        { "IDN", cb_my_idn, NULL },     /* replaces the built-in */
+        VIPER_SCPI_NODE_END
+    };
+    viper_scpi_config_t cfg = *(g_ctx.cfg);
+
+    cfg.common = common;
+    cfg.clear = on_clear;
+    cfg.self_test = self_test_fails;
+    fx_setup();
+    (void)viper_scpi_init(&g_ctx, &cfg);
+    fx_clear();
+    fx_send("*SAV 4;*opt?;*IDN?;*TST?;*CLS;*ESR?");
+    CHECK_INT(s_saved, 4);
+    CHECK_STR(fx_out(), "GPIB,DIGIO;MINE;3;0\n");
+    CHECK_INT(s_clears, 1);
+    fx_send("*SAV 10");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -222);
+    fx_send("*RCL 1");                    /* neither table has it */
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -113);
+    fx_setup();                           /* restore the fixture */
+}
+
 int main(void)
 {
     test_idn();
@@ -292,5 +360,6 @@ int main(void)
     test_power_on();
     test_trg();
     test_register_values();
+    test_user_common_commands();
     return test_summary("test_ieee488");
 }

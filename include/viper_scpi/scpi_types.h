@@ -37,7 +37,10 @@ typedef enum {
     VIPER_SCPI_RES_ERR_INPUT_OVERRUN = -363,    /**< Input buffer overrun */
     VIPER_SCPI_RES_ERR_QUERY = -400,            /**< Query error */
     VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED = -410,/**< New message over an unread reply */
-    VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED = -420/**< Read requested, nothing to send */
+    VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED = -420,/**< Read requested, nothing to send */
+    /** Returned by viper_scpi_fail(): the error is already in the queue.
+     *  Outside the range of SCPI error numbers. */
+    VIPER_SCPI_RES_QUEUED = 0x10000
 } viper_scpi_result_t;
 
 /** Event Status Register bits (IEEE 488.2). */
@@ -64,7 +67,8 @@ enum {
 
 typedef struct viper_scpi_context_s viper_scpi_context_t;
 
-/** Command callback. A non-zero return value is pushed to the error queue. */
+/** Command callback. A non-zero return value is pushed to the error queue
+ *  (except VIPER_SCPI_RES_QUEUED, see viper_scpi_fail()). */
 typedef viper_scpi_result_t (*viper_scpi_cmd_callback_t)(viper_scpi_context_t *ctx);
 
 /**
@@ -123,12 +127,20 @@ typedef struct {
     int value;
 } viper_scpi_choice_t;
 
-/** Output function: send @p len bytes to the transport. */
+/** Output function (stream model): send @p len bytes to the transport and
+ *  return how many it took. A short count ends the response message there:
+ *  the rest of it is not written and -321 is queued, so a host times out
+ *  instead of reading a truncated value as valid. Block, or buffer, rather
+ *  than return less. */
 typedef size_t (*viper_scpi_write_t)(void *user_data, const char *data, size_t len);
 
-/** Optional *RST / *TRG hook. */
+/** Optional *RST / *TRG / *CLS hook. */
 typedef void (*viper_scpi_reset_t)(viper_scpi_context_t *ctx);
 typedef void (*viper_scpi_trigger_t)(viper_scpi_context_t *ctx);
+
+/** Optional *TST? hook: run the self-test and return its result, 0 for
+ *  passed (IEEE 488.2 10.38). */
+typedef int32_t (*viper_scpi_self_test_t)(viper_scpi_context_t *ctx);
 
 /**
  * Producer for viper_scpi_result_block_fill(): write @p count bytes of the
@@ -214,6 +226,14 @@ typedef struct {
     const viper_scpi_error_text_t *error_texts;   /**< Searched before the
                                                        built-in texts */
     uint32_t options;              /**< VIPER_SCPI_OPT_* leniencies */
+    /** The instrument's own common commands (*SAV, *RCL, *OPT?, *CAL?,
+     *  ...): nodes whose patterns are the names without '*', e.g. "SAV".
+     *  Searched before the built-in ones, so an entry here replaces one. */
+    const viper_scpi_node_t *common;
+    viper_scpi_reset_t clear;      /**< Called by *CLS after the library's
+                                        status data is cleared (clear your
+                                        own event registers here) */
+    viper_scpi_self_test_t self_test; /**< *TST?; without it *TST? answers 0 */
 } viper_scpi_config_t;
 
 /** SCPI status register sets, for viper_scpi_status_condition(). */
@@ -275,6 +295,9 @@ struct viper_scpi_context_s {
     uint8_t opc_armed;     /**< *OPC given while operations were pending */
     uint8_t skip_unit;     /**< Rest of the unit is lexed but not kept */
     uint8_t running;       /**< Inside run_line(): units are executing */
+    uint8_t resumed;       /**< The callback is re-run after a defer */
+    viper_scpi_cmd_callback_t deferred; /**< Callback of the running command,
+                                             re-run after viper_scpi_defer() */
     viper_scpi_status_set_t status[2]; /**< OPERation, QUEStionable */
     /* Streaming block input */
     viper_scpi_block_stream_t stream;  /**< Handler of the block being streamed */
