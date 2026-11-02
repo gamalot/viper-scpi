@@ -24,6 +24,14 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
   ill-formed on 16-bit-int targets (AVR, MSP430).
 - Codes outside -32768..32767 can no longer be passed (they were queued as
   -200); the type rules them out.
+- The range, keyword and unit shorthands are removed:
+  `viper_scpi_param_double_kw()`, `_double_kw_ex()`, `_int32_kw()`,
+  `_int32_kw_ex()`, `_double_unit()`, `_double_unit_kw()` and
+  `_double_unit_kw_ex()`. Use a const spec with `viper_scpi_param_number()`
+  or `viper_scpi_param_integer()`: `{ min, max, def, units, flags }`, with
+  `VIPER_SCPI_NUM_UPDOWN` in `flags` for the `_ex` behaviour. A spec with
+  `units` NULL takes a bare number; for a number with units and no range use
+  `-HUGE_VAL`/`HUGE_VAL` limits (MIN/MAX are then accepted too).
 
 ### Added
 
@@ -33,8 +41,8 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
   `MIN`/`MAX` query share one definition. The integer parser returns a count
   of 10^`exp10` base units and takes decimals, exponents and units without
   floating point (`VOLT 1.5`, `VOLT 1500 MV` give 1500 with `exp10 = -3`),
-  which integer-only firmware could not accept before. The eight
-  `*_kw`/`*_kw_ex`/`_unit_kw` functions remain as shorthands built on them.
+  which integer-only firmware could not accept before. They replace the
+  seven `*_kw`/`*_kw_ex`/`*_unit*` functions (see Breaking).
 
 ### Changed
 

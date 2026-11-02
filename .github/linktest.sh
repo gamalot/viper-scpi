@@ -17,12 +17,13 @@ cat > "$OUT/int_only.c" <<'SRC'
 static size_t out(void *u, const char *d, size_t n) { (void)u; (void)d; return n; }
 static viper_scpi_result_t cmd_count(viper_scpi_context_t *ctx)
 {
+    static const viper_scpi_integer_t count = { 0, 100, 1, 0, 0, 0 };
     int32_t v;
     if (viper_scpi_is_query(ctx)) {
         viper_scpi_result_int(ctx, 42);
         return VIPER_SCPI_RES_OK;
     }
-    return viper_scpi_param_int32_kw(ctx, 0, 0, 100, 1, &v);
+    return viper_scpi_param_integer(ctx, 0, &count, &v, 0);
 }
 /* Millivolts from "1.5", "1500 MV", MAX: units without floating point. */
 static const viper_scpi_integer_t mv = { 0, 30000, 0, -3, 0, viper_scpi_units_volt };

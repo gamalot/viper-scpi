@@ -282,7 +282,8 @@ static viper_scpi_result_t cb_sav(viper_scpi_context_t *ctx)
     int32_t slot;
     viper_scpi_result_t res = viper_scpi_expect(ctx, 1, VIPER_SCPI_NO_FORM);
     if (res == VIPER_SCPI_RES_OK) {
-        res = viper_scpi_param_int32_kw(ctx, 0, 0, 9, 0, &slot);
+        static const viper_scpi_integer_t slots = { 0, 9, 0, 0, 0, NULL };
+        res = viper_scpi_param_integer(ctx, 0, &slots, &slot, NULL);
     }
     if (res == VIPER_SCPI_RES_OK) {
         s_saved = (int)slot;

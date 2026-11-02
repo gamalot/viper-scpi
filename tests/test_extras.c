@@ -224,17 +224,17 @@ static void test_keyword_api_arguments(void)
 
     fx_setup();
     fx_send("PARAMS MAX");
-    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 0, 1.0, 0.0, 0.5, &d),
+    CHECK_INT(num(&g_ctx, 0, NULL, 1.0, 0.0, 0.5, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 0, 0.0, 1.0, 0.5, NULL),
+    CHECK_INT(num(&g_ctx, 0, NULL, 0.0, 1.0, 0.5, 0, NULL, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_int32_kw(&g_ctx, 0, 5, 1, 3, &i), VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_int32_kw(&g_ctx, 0, 1, 5, 3, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 0, -1.0, 2.0, 0.5, &d), 0);
+    CHECK_INT(intg(&g_ctx, 0, 5, 1, 3, 0, &i, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
+    CHECK_INT(intg(&g_ctx, 0, 1, 5, 3, 0, NULL, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
+    CHECK_INT(num(&g_ctx, 0, NULL, -1.0, 2.0, 0.5, 0, &d, NULL), 0);
     CHECK(d == 2.0);
-    CHECK_INT(viper_scpi_param_int32_kw(&g_ctx, 0, -1, 2, 0, &i), 0);
+    CHECK_INT(intg(&g_ctx, 0, -1, 2, 0, 0, &i, NULL), 0);
     CHECK_INT(i, 2);
-    CHECK_INT(viper_scpi_param_double_kw(&g_ctx, 3, 0.0, 1.0, 0.5, &d),
+    CHECK_INT(num(&g_ctx, 3, NULL, 0.0, 1.0, 0.5, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_MISSING_PARAM);
 }
 

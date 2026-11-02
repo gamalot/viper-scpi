@@ -266,7 +266,7 @@ static const viper_scpi_node_t root[] = {
 - The path includes the inherited prefix: in `CHAN5:VOLT?;RANG6?` the second
   command sees suffixes 5 and 6.
 
-## Numbers with units
+## Numbers: range, units, keywords
 
 One const spec per setting describes range, default, units and keywords;
 `viper_scpi_param_number()` (double) or `viper_scpi_param_integer()` (an
@@ -280,21 +280,26 @@ res = viper_scpi_param_number(ctx, 0, &volt, &volts, NULL);     /* 1.5, 1500 MV,
 res = viper_scpi_param_integer(ctx, 0, &mvolt, &millivolts, NULL); /* same input, in mV */
 ```
 
-`viper_scpi_param_integer()` gives integer-only firmware decimals, exponents
-and units without linking `strtod`, `printf` or soft-float code: the count is
-of 10^`exp10` base units, rounded half away from zero. The older functions
-below are shorthands for these two.
+The spec is `{ min, max, def, units, flags }` for doubles and
+`{ min, max, def, exp10, flags, units }` for integers, so a command and its
+`VOLT? MAX` query share one definition.
 
-```c
-double hz;
-res = viper_scpi_param_double_unit(ctx, 0, viper_scpi_units_hertz, &hz);
-res = viper_scpi_param_double_unit_kw(ctx, 0, viper_scpi_units_volt,
-                                      0.0, 30.0, 5.0, &volts);   /* + MIN/MAX/DEF */
-```
+- **Range:** numbers must lie within `[min, max]`, or `-222` is returned.
+  `INFinity`/`NINFinity` must lie within it too (use `HUGE_VAL` limits to
+  allow them); `NAN` is always `-224`.
+- **Keywords:** `MIN`, `MAX`, `DEF` (or `MINIMUM`, `MAXIMUM`, `DEFAULT`)
+  resolve to `min`, `max` and `def`.
+- **Units:** `units` NULL takes a bare number only. With a table the result is
+  in base units (`1.5KHZ` gives 1500.0), scaled by an exact power of ten
+  (`10US` equals `10E-6`); a bare number is accepted as well.
+- **Integers:** `viper_scpi_param_integer()` gives integer-only firmware
+  decimals, exponents and units without linking `strtod`, `printf` or
+  soft-float code. The result is a count of 10^`exp10` base units, rounded
+  half away from zero. Units with a scale other than 1 (`MIN`, `HOUR`) are
+  refused there.
 
-The result is in base units (`1.5KHZ` gives 1500.0). A bare number is accepted
-as well. Multipliers are `EX PE T G MA K M U N P F A` (case-insensitive):
-`MA` is mega and `M` is milli (`10MA` on amps is 10 mA), except for units with
+Multipliers are `EX PE T G MA K M U N P F A` (case-insensitive): `MA` is mega
+and `M` is milli (`10MA` on amps is 10 mA), except for units with
 `VIPER_SCPI_UNIT_M_IS_MEGA`, where `MHZ` and `MOHM` mean mega as the standard
 requires. A suffix that is not in the table, or a prefix on a unit that forbids
 it, returns `-131` (invalid suffix). Use `1E-3` for milliohm.
@@ -312,38 +317,26 @@ static const viper_scpi_unit_t pressure[] = {
 
 Ready-made tables: `viper_scpi_units_volt`, `_amp`, `_hertz`, `_ohm`, `_watt`,
 `_farad`, `_henry`, `_decibel`, `_second` (S, SEC, MIN, HOUR) and `_celsius`.
-The plain `viper_scpi_param_double()` still rejects units.
+The plain `viper_scpi_param_double()` rejects units and keywords.
 
-## MIN / MAX / DEF
+### UP / DOWN
 
-```c
-double v;
-res = viper_scpi_param_double_kw(ctx, 0, /*min*/ 0.0, /*max*/ 30.0, /*def*/ 5.0, &v);
-```
-
-`MIN`, `MAX`, `DEF` (or `MINIMUM`, `MAXIMUM`, `DEFAULT`) resolve to the given
-limits; numbers must be inside `[min, max]` or `-222` is returned. Queries such
-as `VOLT? MAX` can use the same call. `viper_scpi_param_int32_kw()` does the
-same for integers.
-
-All double parsers also accept `INFinity`, `NINFinity` (negative infinity) and
-`NAN`. In the range-checked ones an infinity must lie within `[min, max]` (so
-it fails a finite range with `-222`) and `NAN` is always `-224`.
-
-`UP` and `DOWN` are for instruments that step a setting. The `_kw_ex`
-variants accept them and report which keyword was given:
+`UP` and `DOWN` are for instruments that step a setting. Set
+`VIPER_SCPI_NUM_UPDOWN` in the spec's `flags` and pass a `kw` pointer, which
+reports the keyword given (`VIPER_SCPI_KW_NONE` for a number); `out` is left
+unchanged for `UP`/`DOWN`:
 
 ```c
+static const viper_scpi_number_t volt_step = { 0.0, 30.0, 5.0, viper_scpi_units_volt,
+                                               VIPER_SCPI_NUM_UPDOWN };
 viper_scpi_numeric_kw_t kw;
-res = viper_scpi_param_double_kw_ex(ctx, 0, 0.0, 30.0, 5.0, &volts, &kw);
+
+res = viper_scpi_param_number(ctx, 0, &volt_step, &volts, &kw);
 if (res == VIPER_SCPI_RES_OK && kw == VIPER_SCPI_KW_UP)   volts += step;   /* then range-check */
 if (res == VIPER_SCPI_RES_OK && kw == VIPER_SCPI_KW_DOWN) volts -= step;
 ```
 
-`out` is left unchanged for `UP`/`DOWN`. There are `_ex` variants of the
-int32 and unit parsers too. The plain `_kw` parsers still reject `UP`/`DOWN`.
-With the spec parsers, set `VIPER_SCPI_NUM_UPDOWN` in the spec's `flags` and
-pass a `kw` pointer.
+Without the flag `UP` and `DOWN` are not numbers (`-104`).
 
 ## Block data
 

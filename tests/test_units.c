@@ -190,20 +190,20 @@ static void test_api_arguments(void)
 
     fx_setup();
     fx_send("PARAMS 1KHZ");
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 0, NULL, &d), VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 0, viper_scpi_units_hertz, NULL),
+    CHECK_INT(viper_scpi_param_number(&g_ctx, 0, NULL, &d, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
+    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, NULL, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 5, viper_scpi_units_hertz, &d),
+    CHECK_INT(num(&g_ctx, 5, viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_MISSING_PARAM);
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 0, viper_scpi_units_hertz, &d), 0);
+    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
     CHECK_NEAR(d, 1000.0);
-    CHECK_INT(viper_scpi_param_double_unit_kw(&g_ctx, 0, viper_scpi_units_hertz, 5.0, 1.0, 2.0, &d),
+    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 5.0, 1.0, 2.0, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_double_unit_kw(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 1.0, 0.5, NULL),
+    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 1.0, 0.5, 0, NULL, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(viper_scpi_param_double_unit_kw(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 1e6, 0.5, &d), 0);
+    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 1e6, 0.5, 0, &d, NULL), 0);
     CHECK_NEAR(d, 1000.0);
-    CHECK_INT(viper_scpi_param_double_unit_kw(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 10.0, 0.5, &d),
+    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 10.0, 0.5, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
 }
 
@@ -220,13 +220,13 @@ static void test_custom_unit_table(void)
 
     fx_setup();
     fx_send("PARAMS 2BAR,1KPA,3 psi,4MPA");
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 0, pressure, &d), 0);
+    CHECK_INT(num(&g_ctx, 0, pressure, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
     CHECK_NEAR(d, 2e5);
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 1, pressure, &d), 0);
+    CHECK_INT(num(&g_ctx, 1, pressure, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
     CHECK_NEAR(d, 1000.0);
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 2, pressure, &d), 0);
+    CHECK_INT(num(&g_ctx, 2, pressure, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
     CHECK_NEAR(d, 3 * 6894.757);
-    CHECK_INT(viper_scpi_param_double_unit(&g_ctx, 3, pressure, &d), 0);
+    CHECK_INT(num(&g_ctx, 3, pressure, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
     CHECK_NEAR(d, 4e-3);                            /* M = milli by default */
 }
 

@@ -33,15 +33,24 @@ static viper_scpi_result_t cb(viper_scpi_context_t *ctx)
     bool b;
     char s[16];
     static const viper_scpi_choice_t ch[] = { { "ONE", 1 }, { "TWO", 2 }, { NULL, 0 } };
+    static const viper_scpi_number_t unit_less = { 0.0, 1.0, 0.5, NULL, 0 };
+    static const viper_scpi_number_t hertz = { 0.0, 1e9, 1.0, viper_scpi_units_hertz,
+                                               VIPER_SCPI_NUM_UPDOWN };
+    static const viper_scpi_number_t seconds = { 0.0, 1.0, 0.5, viper_scpi_units_second, 0 };
+    static const viper_scpi_integer_t digit = { 0, 9, 1, 0, 0, NULL };
+    static const viper_scpi_integer_t millivolts = { -30000, 30000, 0, -3, VIPER_SCPI_NUM_UPDOWN,
+                                                     viper_scpi_units_volt };
+    viper_scpi_numeric_kw_t kw;
     int c;
 
     (void)viper_scpi_param_block(ctx, 0, &blk, &n);
     (void)viper_scpi_param_double(ctx, 0, &d);
-    (void)viper_scpi_param_double_kw(ctx, 1, 0.0, 1.0, 0.5, &d);
-    (void)viper_scpi_param_double_unit(ctx, 0, viper_scpi_units_hertz, &d);
-    (void)viper_scpi_param_double_unit_kw(ctx, 1, viper_scpi_units_second, 0.0, 1.0, 0.5, &d);
+    (void)viper_scpi_param_number(ctx, 1, &unit_less, &d, NULL);
+    (void)viper_scpi_param_number(ctx, 0, &hertz, &d, &kw);
+    (void)viper_scpi_param_number(ctx, 1, &seconds, &d, NULL);
     (void)viper_scpi_param_int32(ctx, 0, &i);
-    (void)viper_scpi_param_int32_kw(ctx, 1, 0, 9, 1, &i);
+    (void)viper_scpi_param_integer(ctx, 1, &digit, &i, NULL);
+    (void)viper_scpi_param_integer(ctx, 0, &millivolts, &i, &kw);
     (void)viper_scpi_param_uint32(ctx, 2, &u);
     (void)viper_scpi_param_bool(ctx, 0, &b);
     (void)viper_scpi_param_choice(ctx, 0, ch, &c);

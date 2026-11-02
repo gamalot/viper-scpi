@@ -10,6 +10,7 @@ returns `VIPER_SCPI_RES_OK` or an SCPI error code you can return directly:
 ```c
 static viper_scpi_result_t cmd_ramp(viper_scpi_context_t *ctx)   /* RAMP <start>,<stop>[,<steps>] */
 {
+    static const viper_scpi_integer_t steps_spec = { 1, 1000, 10, 0, 0, NULL };
     double start, stop;
     int32_t steps = 10;
     viper_scpi_result_t res;
@@ -19,7 +20,7 @@ static viper_scpi_result_t cmd_ramp(viper_scpi_context_t *ctx)   /* RAMP <start>
         return res;
     }
     if (viper_scpi_param_present(ctx, 2) &&
-        (res = viper_scpi_param_int32_kw(ctx, 2, 1, 1000, 10, &steps)) != VIPER_SCPI_RES_OK) {
+        (res = viper_scpi_param_integer(ctx, 2, &steps_spec, &steps, NULL)) != VIPER_SCPI_RES_OK) {
         return res;
     }
     if (viper_scpi_param_count(ctx) > 3) {
@@ -39,7 +40,7 @@ Errors the parsers return, with the same meaning everywhere:
 | -222 Data out of range | a number outside the type or the given `[min, max]` |
 | -224 Illegal parameter value | an unknown choice keyword; NAN in a range-checked parser |
 | -131 Invalid suffix | an unknown or disallowed unit |
-| -220 Parameter error | a programming error: NULL output pointer, `min > max` |
+| -220 Parameter error | a programming error: NULL spec or output pointer, `min > max`, UP/DOWN allowed without a `kw` pointer |
 
 Callers never see -102 Syntax error from the parsers: malformed parameter
 lists (`A 1,,2`, an unterminated string) are rejected before the callback
@@ -49,16 +50,11 @@ runs.
 
 | Function | Accepts | Notes |
 | --- | --- | --- |
-| `viper_scpi_param_number` | a double per a const `viper_scpi_number_t` spec: range, default, units, `MIN`/`MAX`/`DEF`, optionally `UP`/`DOWN` | the general one; the `_double_*kw*` functions below are shorthands |
+| `viper_scpi_param_number` | a double per a const `viper_scpi_number_t` spec: range, default, units, `MIN`/`MAX`/`DEF`, optionally `UP`/`DOWN` | the general one; with units the result is in base units, scaled by an exact power of ten (`10US` equals `10E-6`) |
 | `viper_scpi_param_integer` | an integer per a const `viper_scpi_integer_t` spec: the same, with the result a count of 10^`exp10` base units (`1.5` or `1500 MV` give 1500 for mV) | no floating point; units with a scale other than 1 (`MIN`, `HOUR`) are refused |
 | `viper_scpi_param_int32` | `42`, `-7`, `+3`, `1.5`, `3.2E1`, `0x1F`, `#HFF`, `#B1010`, `#Q17` | a decimal number is rounded half away from zero (`1.5` is 2, `-0.5` is -1), in integer arithmetic; sign only on decimal and `0x` |
 | `viper_scpi_param_uint32` | as above, 0..4294967295 | `-0` is accepted |
-| `viper_scpi_param_int32_kw` | an integer, `MIN`, `MAX`, `DEF` | range-checked; `NAN` is -224, `INF`/`NINF` -222 |
 | `viper_scpi_param_double` | `1.5`, `-.5`, `1E-3`, `2.5e+3`, `INF`, `NINF`, `NAN` | at least one digit; no hex |
-| `viper_scpi_param_double_kw` | a double, `MIN`, `MAX`, `DEF` | range-checked |
-| `viper_scpi_param_double_unit` | a double with an optional unit: `1.5KHZ`, `100 mV` | result in base units, scaled by an exact power of ten (`10US` equals `10E-6`) |
-| `viper_scpi_param_double_unit_kw` | the above plus `MIN`, `MAX`, `DEF` | range-checked in base units |
-| `..._kw_ex` variants | additionally `UP`, `DOWN` | report which keyword was given |
 | `viper_scpi_param_bool` | `ON`, `OFF`, or a number | a number is rounded, non-zero is ON (SCPI-99 7.3) |
 | `viper_scpi_param_choice` | a keyword from your list, long or short form | value from the list |
 | `viper_scpi_param_string` | `"text"` or `'text'`, doubled quote as escape | copied, NUL-terminated; on an error `out` is left unchanged |
@@ -71,21 +67,24 @@ parameters there are; optional parameters are simply absent.
 ### Keywords: MIN, MAX, DEF, UP, DOWN
 
 ```c
+static const viper_scpi_number_t volt = { 0.0, 30.0, 5.0, NULL, 0 };   /* min, max, def */
 double volts;
-res = viper_scpi_param_double_kw(ctx, 0, 0.0, 30.0, 5.0, &volts);
+res = viper_scpi_param_number(ctx, 0, &volt, &volts, NULL);
 ```
 
-`MIN`/`MINimum`, `MAX`/`MAXimum` and `DEF`/`DEFault` resolve to the limits you
-pass; numbers must lie within them. Queries use the same call:
+`MIN`/`MINimum`, `MAX`/`MAXimum` and `DEF`/`DEFault` resolve to the spec's
+limits; numbers must lie within them. Queries use the same spec:
 `VOLT? MAX` answers 30.
 
-`UP` and `DOWN` are accepted only by the `_kw_ex` variants, which also say
-which keyword (if any) was given and leave the output unchanged for UP/DOWN:
+`UP` and `DOWN` are accepted only with `VIPER_SCPI_NUM_UPDOWN` in the spec's
+flags. The `kw` argument is then required: it says which keyword (if any) was
+given, and the output is left unchanged for UP/DOWN:
 
 ```c
+static const viper_scpi_number_t volt_step = { 0.0, 30.0, 5.0, NULL, VIPER_SCPI_NUM_UPDOWN };
 viper_scpi_numeric_kw_t kw;
 double v = g_volts;
-res = viper_scpi_param_double_kw_ex(ctx, 0, 0.0, 30.0, 5.0, &v, &kw);
+res = viper_scpi_param_number(ctx, 0, &volt_step, &v, &kw);
 if (res == VIPER_SCPI_RES_OK) {
     if (kw == VIPER_SCPI_KW_UP)   v += g_step;
     if (kw == VIPER_SCPI_KW_DOWN) v -= g_step;
@@ -93,6 +92,8 @@ if (res == VIPER_SCPI_RES_OK) {
     g_volts = v;
 }
 ```
+
+`viper_scpi_param_integer()` takes the same keywords and flag.
 
 ### Infinity and NaN
 
@@ -104,8 +105,9 @@ requires: `9.9E+37`, `-9.9E+37`, `9.91E+37`.
 ### Units
 
 ```c
+static const viper_scpi_number_t freq = { 1.0, 1e9, 1e3, viper_scpi_units_hertz, 0 };
 double hz;
-res = viper_scpi_param_double_unit(ctx, 0, viper_scpi_units_hertz, &hz);  /* 10MHZ -> 1e7 */
+res = viper_scpi_param_number(ctx, 0, &freq, &hz, NULL);   /* 10MHZ -> 1e7 */
 ```
 
 - Multipliers: `EX` 1e18, `PE` 1e15, `T` 1e12, `G` 1e9, `MA` 1e6, `K` 1e3,

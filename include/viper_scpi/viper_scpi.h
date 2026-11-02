@@ -147,7 +147,7 @@ viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, siz
  * VIPER_SCPI_NUM_UPDOWN. A number must lie within [min, max] (OUT_OF_RANGE);
  * NAN is ILLEGAL_VALUE. @p kw receives the keyword given (VIPER_SCPI_KW_NONE
  * for a number) and may be NULL unless UP/DOWN are accepted; for UP and
- * DOWN @p out is left unchanged. The *_kw* functions below are shorthands.
+ * DOWN @p out is left unchanged.
  *
  *     static const viper_scpi_number_t volt = { 0.0, 30.0, 0.0, viper_scpi_units_volt, 0 };
  *     res = viper_scpi_param_number(ctx, 0, &volt, &v, NULL);
@@ -169,57 +169,6 @@ viper_scpi_result_t viper_scpi_param_number(const viper_scpi_context_t *ctx, siz
 viper_scpi_result_t viper_scpi_param_integer(const viper_scpi_context_t *ctx, size_t idx,
                                              const viper_scpi_integer_t *spec, int32_t *out,
                                              viper_scpi_numeric_kw_t *kw);
-
-/**
- * Number or MINimum / MAXimum / DEFault keyword. A keyword resolves to
- * @p min, @p max or @p def; a number must lie within [min, max]
- * (OUT_OF_RANGE otherwise). PARAM_INVALID if @p min > @p max.
- */
-viper_scpi_result_t viper_scpi_param_double_kw(const viper_scpi_context_t *ctx, size_t idx,
-                                               double min, double max, double def,
-                                               double *out);
-/** Integer flavour of viper_scpi_param_double_kw(). */
-viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, size_t idx,
-                                              int32_t min, int32_t max, int32_t def,
-                                              int32_t *out);
-
-/**
- * viper_scpi_param_double_kw() that also accepts UP and DOWN and reports in
- * @p kw which keyword was given (VIPER_SCPI_KW_NONE for a number). For UP and
- * DOWN @p out is left unchanged: the instrument steps its own value. In all
- * the range-checked parsers INF/NINF must lie within [min, max] and NAN is
- * ILLEGAL_VALUE (-224).
- */
-viper_scpi_result_t viper_scpi_param_double_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
-                                                  double min, double max, double def,
-                                                  double *out, viper_scpi_numeric_kw_t *kw);
-/** Integer flavour of viper_scpi_param_double_kw_ex(). */
-viper_scpi_result_t viper_scpi_param_int32_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
-                                                 int32_t min, int32_t max, int32_t def,
-                                                 int32_t *out, viper_scpi_numeric_kw_t *kw);
-
-/**
- * Number with an optional SCPI unit suffix, converted to the base unit.
- * Accepts "1.5KHZ", "100 mV", "2.5E3HZ", "5MA" and a bare number (no unit).
- * Multipliers: EX PE T G MA K M U N P F A (MA = mega, M = milli, except where
- * a unit sets VIPER_SCPI_UNIT_M_IS_MEGA, e.g. MHZ). @p units lists the unit
- * names accepted. An unknown or disallowed suffix gives INVALID_SUFFIX (-131).
- */
-viper_scpi_result_t viper_scpi_param_double_unit(const viper_scpi_context_t *ctx, size_t idx,
-                                                 const viper_scpi_unit_t *units, double *out);
-
-/** viper_scpi_param_double_unit() combined with MIN/MAX/DEF and a range check
- *  (in base units), like viper_scpi_param_double_kw(). */
-viper_scpi_result_t viper_scpi_param_double_unit_kw(const viper_scpi_context_t *ctx, size_t idx,
-                                                    const viper_scpi_unit_t *units,
-                                                    double min, double max, double def,
-                                                    double *out);
-/** viper_scpi_param_double_unit_kw() with UP/DOWN, like
- *  viper_scpi_param_double_kw_ex(). */
-viper_scpi_result_t viper_scpi_param_double_unit_kw_ex(const viper_scpi_context_t *ctx,
-                                                       size_t idx, const viper_scpi_unit_t *units,
-                                                       double min, double max, double def,
-                                                       double *out, viper_scpi_numeric_kw_t *kw);
 
 /** Ready-made unit tables. */
 extern const viper_scpi_unit_t viper_scpi_units_volt[];    /* V */

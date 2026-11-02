@@ -2,10 +2,30 @@
 #ifndef TEST_UTIL_H
 #define TEST_UTIL_H
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "viper_scpi/viper_scpi.h"
+
+/* viper_scpi_param_number() / _integer() with the spec spelled out, for
+ * tests that try many limits. Firmware writes static const specs. */
+static inline viper_scpi_result_t num(const viper_scpi_context_t *ctx, size_t idx,
+                                      const viper_scpi_unit_t *units, double min, double max,
+                                      double def, uint8_t flags, double *out,
+                                      viper_scpi_numeric_kw_t *kw)
+{
+    viper_scpi_number_t spec = { min, max, def, units, flags };
+    return viper_scpi_param_number(ctx, idx, &spec, out, kw);
+}
+
+static inline viper_scpi_result_t intg(const viper_scpi_context_t *ctx, size_t idx, int32_t min,
+                                       int32_t max, int32_t def, uint8_t flags, int32_t *out,
+                                       viper_scpi_numeric_kw_t *kw)
+{
+    viper_scpi_integer_t spec = { min, max, def, 0, flags, NULL };
+    return viper_scpi_param_integer(ctx, idx, &spec, out, kw);
+}
 
 extern int g_checks;
 extern int g_failures;

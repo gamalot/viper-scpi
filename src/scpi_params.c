@@ -703,22 +703,6 @@ viper_scpi_result_t viper_scpi_param_register(const viper_scpi_context_t *ctx, i
     return VIPER_SCPI_RES_OK;
 }
 
-viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, size_t idx,
-                                              int32_t min, int32_t max, int32_t def,
-                                              int32_t *out)
-{
-    viper_scpi_integer_t spec = { min, max, def, 0, 0, NULL };
-    return viper_scpi_param_integer(ctx, idx, &spec, out, NULL);
-}
-
-viper_scpi_result_t viper_scpi_param_int32_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
-                                                 int32_t min, int32_t max, int32_t def,
-                                                 int32_t *out, viper_scpi_numeric_kw_t *kw)
-{
-    viper_scpi_integer_t spec = { min, max, def, 0, VIPER_SCPI_NUM_UPDOWN, NULL };
-    return viper_scpi_param_integer(ctx, idx, &spec, out, kw);
-}
-
 /* ---- Block data ---------------------------------------------------------------------------- */
 
 viper_scpi_result_t viper_scpi_param_block(const viper_scpi_context_t *ctx, size_t idx,

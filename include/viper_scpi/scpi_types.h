@@ -110,14 +110,14 @@ enum {
     VIPER_SCPI_UNIT_M_IS_MEGA = 2  /**< "M" means mega, not milli (MHZ, MOHM) */
 };
 
-/** Unit for viper_scpi_param_double_unit(); tables end with a NULL name. */
+/** Unit of a number spec's table; tables end with a NULL name. */
 typedef struct {
     const char *name;  /**< Case-insensitive, e.g. "HZ" */
     double scale;      /**< Factor to the base unit (1.0 unless e.g. MIN = 60) */
     uint8_t flags;     /**< VIPER_SCPI_UNIT_* */
 } viper_scpi_unit_t;
 
-/** Numeric keyword reported by the viper_scpi_param_*_kw_ex() parsers. */
+/** Numeric keyword reported by viper_scpi_param_number() / _integer(). */
 typedef enum {
     VIPER_SCPI_KW_NONE = 0, /**< A number was given */
     VIPER_SCPI_KW_MIN,      /**< MINimum */

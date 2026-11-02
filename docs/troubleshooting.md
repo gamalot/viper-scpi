@@ -56,11 +56,13 @@ code usually points straight at the cause.
 
 **-104 Data type error**
 - A number where text was expected or the reverse; a unit given to a plain
-  `viper_scpi_param_double()` (use the `_unit` parsers); an unquoted string.
+  `viper_scpi_param_double()` (use `viper_scpi_param_number()` with a unit
+  table); `UP`/`DOWN` to a spec without `VIPER_SCPI_NUM_UPDOWN`; an unquoted
+  string.
 
 **-222 Data out of range**
-- The value is outside the range the callback passes to a `_kw` parser, or
-  outside the integer type. `INF` fails any finite range.
+- The value is outside the spec's `[min, max]`, or outside the integer type.
+  `INF` fails any finite range.
 
 **-350 Queue overflow**
 - More than `VIPER_SCPI_ERROR_QUEUE_SIZE` errors without anyone reading them.
@@ -97,8 +99,9 @@ the message.
 
 **Linker pulls in printf even though no doubles are used.** The library must be
 linked as a static archive (or with `--gc-sections`), and no code may reference
-a `viper_scpi_param_double*` or `viper_scpi_result_double*` function -- including
-the unit and `_kw` double parsers.
+a `viper_scpi_param_double()`, `viper_scpi_param_number()` or
+`viper_scpi_result_double*()` function. `viper_scpi_param_integer()` takes units
+without floating point.
 
 **Commands behave differently in a terminal and in a VISA program.** The two
 output models differ: in the message-exchange model (`output_buffer` set) EOM

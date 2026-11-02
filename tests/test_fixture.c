@@ -175,13 +175,17 @@ static viper_scpi_result_t cb_bank_id(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
+static const viper_scpi_number_t limit_spec = { 0.0, 10.0, 5.0, NULL, 0 };
+static const viper_scpi_integer_t pcount_spec = { 1, 100, 10, 0, 0, NULL };
+static const viper_scpi_number_t vlim_spec = { -10.0, 10.0, 1.0, viper_scpi_units_volt, 0 };
+
 static viper_scpi_result_t cb_limit(viper_scpi_context_t *ctx)
 {
     double v = g_limit;
 
     if (viper_scpi_is_query(ctx)) {
         if (viper_scpi_param_present(ctx, 0)) {
-            viper_scpi_result_t res = viper_scpi_param_double_kw(ctx, 0, 0.0, 10.0, 5.0, &v);
+            viper_scpi_result_t res = viper_scpi_param_number(ctx, 0, &limit_spec, &v, NULL);
             if (res != VIPER_SCPI_RES_OK) {
                 return res;
             }
@@ -189,7 +193,7 @@ static viper_scpi_result_t cb_limit(viper_scpi_context_t *ctx)
         viper_scpi_result_double(ctx, v);
         return VIPER_SCPI_RES_OK;
     }
-    return viper_scpi_param_double_kw(ctx, 0, 0.0, 10.0, 5.0, &g_limit);
+    return viper_scpi_param_number(ctx, 0, &limit_spec, &g_limit, NULL);
 }
 
 static viper_scpi_result_t cb_pcount(viper_scpi_context_t *ctx)
@@ -198,7 +202,7 @@ static viper_scpi_result_t cb_pcount(viper_scpi_context_t *ctx)
         viper_scpi_result_int(ctx, g_pcount);
         return VIPER_SCPI_RES_OK;
     }
-    return viper_scpi_param_int32_kw(ctx, 0, 1, 100, 10, &g_pcount);
+    return viper_scpi_param_integer(ctx, 0, &pcount_spec, &g_pcount, NULL);
 }
 
 static viper_scpi_result_t cb_block(viper_scpi_context_t *ctx)
@@ -257,11 +261,14 @@ static viper_scpi_result_t cb_broken(viper_scpi_context_t *ctx)
 /* Generic setter/getter for a number with a unit table. */
 static viper_scpi_result_t unit_cmd(viper_scpi_context_t *ctx, const viper_scpi_unit_t *units)
 {
+    viper_scpi_number_t spec = { -HUGE_VAL, HUGE_VAL, 0.0, NULL, 0 };
+
+    spec.units = units;
     if (viper_scpi_is_query(ctx)) {
         viper_scpi_result_double(ctx, g_num);
         return VIPER_SCPI_RES_OK;
     }
-    return viper_scpi_param_double_unit(ctx, 0, units, &g_num);
+    return viper_scpi_param_number(ctx, 0, &spec, &g_num, NULL);
 }
 
 static viper_scpi_result_t cb_freq(viper_scpi_context_t *ctx)
@@ -315,8 +322,7 @@ static viper_scpi_result_t cb_vlim(viper_scpi_context_t *ctx)
         viper_scpi_result_double(ctx, g_vlim);
         return VIPER_SCPI_RES_OK;
     }
-    return viper_scpi_param_double_unit_kw(ctx, 0, viper_scpi_units_volt, -10.0, 10.0, 1.0,
-                                           &g_vlim);
+    return viper_scpi_param_number(ctx, 0, &vlim_spec, &g_vlim, NULL);
 }
 
 static const viper_scpi_node_t meas_volt_children[] = {

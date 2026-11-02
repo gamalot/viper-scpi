@@ -95,9 +95,9 @@ The difference is the C library's `snprintf`/`strtod` and the soft-float code
 behind them. All floating-point code of viper-scpi lives in
 `src/scpi_float.c`, the only file that calls them (the unit tables live in
 `src/scpi_units.c`, so `viper_scpi_param_integer()` with units links none of
-it), so firmware that never calls
-a `viper_scpi_param_double*` or `viper_scpi_result_double*` function does not
-link it -- provided the library is linked as a static archive or with
+it), so firmware that never calls `viper_scpi_param_double()`,
+`viper_scpi_param_number()` or a `viper_scpi_result_double*()` function does
+not link it -- provided the library is linked as a static archive or with
 unused-section removal (GNU `--gc-sections`, TI's default). If you need doubles,
 newlib-nano with float printf support or a vendor C library is usually much
 smaller than full newlib.
