@@ -6,6 +6,17 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Added
+
+- `viper_scpi_param_number()` and `viper_scpi_param_integer()`: one const
+  spec (`viper_scpi_number_t` / `viper_scpi_integer_t`) gives range,
+  default, units and whether `UP`/`DOWN` are accepted, so a setting and its
+  `MIN`/`MAX` query share one definition. The integer parser returns a count
+  of 10^`exp10` base units and takes decimals, exponents and units without
+  floating point (`VOLT 1.5`, `VOLT 1500 MV` give 1500 with `exp10 = -3`),
+  which integer-only firmware could not accept before. The eight
+  `*_kw`/`*_kw_ex`/`_unit_kw` functions remain as shorthands built on them.
+
 ### Changed
 
 - Header resolution matches required mnemonics in a loop and recurses only
@@ -18,6 +29,9 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
   and the fields used for every input byte come first. The library code is
   about 580 bytes smaller on Cortex-M0+ as a result. `VIPER_SCPI_BUFFER_SIZE`
   is limited to 65535 and `VIPER_SCPI_MAX_PARAMS` to 255 (compile errors).
+- The unit tables and prefix handling moved from `scpi_float.c` to the new
+  `src/scpi_units.c` (add it if you list the sources yourself); the CI link
+  test checks that integer parsing with units links no soft-float helpers.
 
 ## [0.3.0] - 2026-11-02
 

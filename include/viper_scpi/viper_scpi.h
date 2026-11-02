@@ -141,6 +141,36 @@ viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, siz
                                             double *out);
 
 /**
+ * The general numeric parser: a number, with a unit from spec->units if
+ * given (converted to the base unit), or a MINimum / MAXimum / DEFault
+ * keyword, which resolves to spec->min / max / def; UP and DOWN too with
+ * VIPER_SCPI_NUM_UPDOWN. A number must lie within [min, max] (OUT_OF_RANGE);
+ * NAN is ILLEGAL_VALUE. @p kw receives the keyword given (VIPER_SCPI_KW_NONE
+ * for a number) and may be NULL unless UP/DOWN are accepted; for UP and
+ * DOWN @p out is left unchanged. The *_kw* functions below are shorthands.
+ *
+ *     static const viper_scpi_number_t volt = { 0.0, 30.0, 0.0, viper_scpi_units_volt, 0 };
+ *     res = viper_scpi_param_number(ctx, 0, &volt, &v, NULL);
+ */
+viper_scpi_result_t viper_scpi_param_number(const viper_scpi_context_t *ctx, size_t idx,
+                                            const viper_scpi_number_t *spec, double *out,
+                                            viper_scpi_numeric_kw_t *kw);
+
+/**
+ * viper_scpi_param_number() for integer-only firmware: the result is an
+ * int32_t count of 10^spec->exp10 base units, rounded half away from zero,
+ * computed without floating point (no strtod, no soft-float). Takes decimal
+ * numbers with exponent and units ("1.5", "1500 MV"); #H/#Q/#B and 0x numbers
+ * give the count directly. INF/NINF are OUT_OF_RANGE, NAN ILLEGAL_VALUE.
+ *
+ *     static const viper_scpi_integer_t mv = { 0, 30000, 0, -3, 0, viper_scpi_units_volt };
+ *     res = viper_scpi_param_integer(ctx, 0, &mv, &millivolts, NULL);
+ */
+viper_scpi_result_t viper_scpi_param_integer(const viper_scpi_context_t *ctx, size_t idx,
+                                             const viper_scpi_integer_t *spec, int32_t *out,
+                                             viper_scpi_numeric_kw_t *kw);
+
+/**
  * Number or MINimum / MAXimum / DEFault keyword. A keyword resolves to
  * @p min, @p max or @p def; a number must lie within [min, max]
  * (OUT_OF_RANGE otherwise). PARAM_INVALID if @p min > @p max.

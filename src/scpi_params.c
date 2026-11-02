@@ -214,12 +214,13 @@ static int digit_value(char c)
 
 /*
  * Decimal numeric program data (IEEE 488.2 7.7.2: NR1, NR2 or NR3, e.g. "42",
- * "1.5", "3.2E1") rounded to an integer, half away from zero, as 488.2 and
+ * "1.5", "3.2E1"), times 10^@p shift, rounded to an integer, half away from
+ * zero, as 488.2 and
  * SCPI-99 require for integer settings. Unsigned magnitude only; a value above
  * UINT32_MAX is OUT_OF_RANGE. 32-bit arithmetic without divisions, so it
  * pulls in no floating-point or 64-bit helpers.
  */
-static viper_scpi_result_t parse_decimal(const char *s, size_t n, uint32_t *mag)
+static viper_scpi_result_t parse_decimal(const char *s, size_t n, int32_t shift, uint32_t *mag)
 {
     size_t i = 0;
     size_t mant_end;
@@ -272,7 +273,7 @@ static viper_scpi_result_t parse_decimal(const char *s, size_t n, uint32_t *mag)
         }
     }
 
-    pos = (int32_t)int_digits + exp;
+    pos = (int32_t)int_digits + exp + shift;
     for (i = 0; i < mant_end && k <= pos; i++) {
         uint32_t d;
 
@@ -307,11 +308,13 @@ static viper_scpi_result_t parse_decimal(const char *s, size_t n, uint32_t *mag)
     return VIPER_SCPI_RES_OK;
 }
 
-/* Parses sign and magnitude: a decimal number (rounded, see parse_decimal())
- * or a #H/#Q/#B/0x non-decimal one. A magnitude above UINT32_MAX is
+/* Parses sign and magnitude: a decimal number times 10^@p shift (rounded,
+ * see parse_decimal()) or a #H/#Q/#B/0x non-decimal one, which is taken as
+ * it is. A magnitude above UINT32_MAX is
  * OUT_OF_RANGE. 32-bit arithmetic only, so Cortex-M0 needs no 64-bit runtime
  * helpers. */
-static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uint32_t *mag)
+static viper_scpi_result_t parse_integer(const char *s, size_t n, int32_t shift, bool *neg,
+                                         uint32_t *mag)
 {
     uint32_t base = 10;
     uint32_t acc = 0;
@@ -340,7 +343,7 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uin
             base = 16;
             i += 2;
         } else {
-            return parse_decimal(s + i, n - i, mag);
+            return parse_decimal(s + i, n - i, shift, mag);
         }
     }
     if (i >= n) {
@@ -371,6 +374,22 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, bool *neg, uin
     return VIPER_SCPI_RES_OK;
 }
 
+/* Sign and magnitude to int32_t; OUT_OF_RANGE beyond it. */
+static viper_scpi_result_t to_int32(bool neg, uint32_t mag, int32_t *out)
+{
+    if (neg ? mag > (uint32_t)INT32_MAX + 1u : mag > (uint32_t)INT32_MAX) {
+        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
+    }
+    if (!neg) {
+        *out = (int32_t)mag;
+    } else if (mag == (uint32_t)INT32_MAX + 1u) {
+        *out = INT32_MIN;
+    } else {
+        *out = -(int32_t)mag;
+    }
+    return VIPER_SCPI_RES_OK;
+}
+
 viper_scpi_result_t viper_scpi_param_int32(const viper_scpi_context_t *ctx, size_t idx,
                                            int32_t *out)
 {
@@ -385,22 +404,12 @@ viper_scpi_result_t viper_scpi_param_int32(const viper_scpi_context_t *ctx, size
     }
     res = viper_scpi_param_raw(ctx, idx, &s, &n);
     if (res == VIPER_SCPI_RES_OK) {
-        res = parse_integer(s, n, &neg, &mag);
+        res = parse_integer(s, n, 0, &neg, &mag);
     }
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
-    if (neg ? mag > (uint32_t)INT32_MAX + 1u : mag > (uint32_t)INT32_MAX) {
-        return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
-    }
-    if (!neg) {
-        *out = (int32_t)mag;
-    } else if (mag == (uint32_t)INT32_MAX + 1u) {
-        *out = INT32_MIN;
-    } else {
-        *out = -(int32_t)mag;
-    }
-    return VIPER_SCPI_RES_OK;
+    return to_int32(neg, mag, out);
 }
 
 viper_scpi_result_t viper_scpi_param_uint32(const viper_scpi_context_t *ctx, size_t idx,
@@ -417,7 +426,7 @@ viper_scpi_result_t viper_scpi_param_uint32(const viper_scpi_context_t *ctx, siz
     }
     res = viper_scpi_param_raw(ctx, idx, &s, &n);
     if (res == VIPER_SCPI_RES_OK) {
-        res = parse_integer(s, n, &neg, &mag);
+        res = parse_integer(s, n, 0, &neg, &mag);
     }
     if (res != VIPER_SCPI_RES_OK) {
         return res;
@@ -454,7 +463,7 @@ viper_scpi_result_t viper_scpi_param_bool(const viper_scpi_context_t *ctx, size_
         bool neg;
         uint32_t mag = 0;
 
-        res = parse_integer(s, n, &neg, &mag);
+        res = parse_integer(s, n, 0, &neg, &mag);
         if (res == VIPER_SCPI_RES_ERR_OUT_OF_RANGE) {
             mag = 1; /* huge, so not zero */
         } else if (res != VIPER_SCPI_RES_OK) {
@@ -562,41 +571,98 @@ viper_scpi_numeric_kw_t viper_scpi_numeric_keyword(const viper_scpi_context_t *c
     return VIPER_SCPI_KW_NONE;
 }
 
-static viper_scpi_result_t int32_kw(const viper_scpi_context_t *ctx, size_t idx, int32_t min,
-                                    int32_t max, int32_t def, int32_t *out,
-                                    viper_scpi_numeric_kw_t *kw_out)
+/* True for a unit whose scale is exactly 1.0. Checked on the bit pattern
+ * (IEEE 754 binary64 1.0, or binary32 1.0 where double is 32-bit) so that
+ * this translation unit does no floating-point arithmetic. */
+static bool unit_scale_is_one(const viper_scpi_unit_t *u)
 {
-    viper_scpi_numeric_kw_t kw;
-    int32_t v;
+    union {
+        double d;
+        uint64_t u64;
+        uint32_t u32;
+    } bits;
+
+    bits.u64 = 0;
+    bits.d = u->scale;
+    return (sizeof(double) == 8) ? bits.u64 == 0x3FF0000000000000u
+                                 : bits.u32 == 0x3F800000u;
+}
+
+/* A number of spec->units, as a count of 10^exp10 base units. */
+static viper_scpi_result_t integer_value(const viper_scpi_integer_t *spec, const char *s,
+                                         size_t n, int32_t *out)
+{
+    bool neg = false;
+    uint32_t mag = 0;
     viper_scpi_result_t res;
 
-    if (out == NULL || min > max) {
+    if (spec->units == NULL) {
+        res = parse_integer(s, n, -(int32_t)spec->exp10, &neg, &mag);
+    } else {
+        const viper_scpi_unit_t *unit;
+        size_t num;
+        size_t i = 0;
+        int exp3;
+
+        res = viper_scpi_number_unit(spec->units, s, n, &num, &unit, &exp3);
+        if (res != VIPER_SCPI_RES_OK) {
+            return res;
+        }
+        if (unit != NULL && !unit_scale_is_one(unit)) {
+            return VIPER_SCPI_RES_ERR_INVALID_SUFFIX; /* MIN, HOUR: not integral */
+        }
+        if (s[0] == '+' || s[0] == '-') {
+            neg = s[0] == '-';
+            i = 1;
+        }
+        res = parse_decimal(s + i, num - i, (int32_t)exp3 * 3 - (int32_t)spec->exp10, &mag);
+    }
+    return (res == VIPER_SCPI_RES_OK) ? to_int32(neg, mag, out) : res;
+}
+
+viper_scpi_result_t viper_scpi_param_integer(const viper_scpi_context_t *ctx, size_t idx,
+                                             const viper_scpi_integer_t *spec, int32_t *out,
+                                             viper_scpi_numeric_kw_t *kw_out)
+{
+    viper_scpi_numeric_kw_t kw;
+    const char *s;
+    size_t n;
+    int32_t v;
+    viper_scpi_result_t res;
+    bool updown;
+
+    if (spec == NULL || out == NULL || spec->min > spec->max) {
         return VIPER_SCPI_RES_ERR_PARAM_INVALID;
     }
+    updown = (spec->flags & VIPER_SCPI_NUM_UPDOWN) != 0;
+    if (updown && kw_out == NULL) {
+        return VIPER_SCPI_RES_ERR_PARAM_INVALID; /* UP/DOWN must be reported */
+    }
     kw = viper_scpi_numeric_keyword(ctx, idx);
-    if ((kw == VIPER_SCPI_KW_UP || kw == VIPER_SCPI_KW_DOWN) && kw_out == NULL) {
+    if ((kw == VIPER_SCPI_KW_UP || kw == VIPER_SCPI_KW_DOWN) && !updown) {
         kw = VIPER_SCPI_KW_NONE;
     }
     if (kw != VIPER_SCPI_KW_NONE) {
         if (kw == VIPER_SCPI_KW_MIN) {
-            *out = min;
+            *out = spec->min;
         } else if (kw == VIPER_SCPI_KW_MAX) {
-            *out = max;
+            *out = spec->max;
         } else if (kw == VIPER_SCPI_KW_DEF) {
-            *out = def;
+            *out = spec->def;
         }
         if (kw_out != NULL) {
             *kw_out = kw;
         }
         return VIPER_SCPI_RES_OK;
     }
-    res = viper_scpi_param_int32(ctx, idx, &v);
+    res = viper_scpi_param_raw(ctx, idx, &s, &n);
+    if (res != VIPER_SCPI_RES_OK) {
+        return res;
+    }
+    res = integer_value(spec, s, n, &v);
     if (res == VIPER_SCPI_RES_ERR_DATA_TYPE) {
         /* As in the double parsers: NAN is never in a range, and INF/NINF
          * lie outside any integer one. */
-        const char *s;
-        size_t n;
-        (void)viper_scpi_param_raw(ctx, idx, &s, &n);
         if (viper_scpi_pattern_match("NAN", s, n)) {
             return VIPER_SCPI_RES_ERR_ILLEGAL_VALUE;
         }
@@ -608,7 +674,7 @@ static viper_scpi_result_t int32_kw(const viper_scpi_context_t *ctx, size_t idx,
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
-    if (v < min || v > max) {
+    if (v < spec->min || v > spec->max) {
         return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
     }
     *out = v;
@@ -641,17 +707,16 @@ viper_scpi_result_t viper_scpi_param_int32_kw(const viper_scpi_context_t *ctx, s
                                               int32_t min, int32_t max, int32_t def,
                                               int32_t *out)
 {
-    return int32_kw(ctx, idx, min, max, def, out, NULL);
+    viper_scpi_integer_t spec = { min, max, def, 0, 0, NULL };
+    return viper_scpi_param_integer(ctx, idx, &spec, out, NULL);
 }
 
 viper_scpi_result_t viper_scpi_param_int32_kw_ex(const viper_scpi_context_t *ctx, size_t idx,
                                                  int32_t min, int32_t max, int32_t def,
                                                  int32_t *out, viper_scpi_numeric_kw_t *kw)
 {
-    if (kw == NULL) {
-        return VIPER_SCPI_RES_ERR_PARAM_INVALID;
-    }
-    return int32_kw(ctx, idx, min, max, def, out, kw);
+    viper_scpi_integer_t spec = { min, max, def, 0, VIPER_SCPI_NUM_UPDOWN, NULL };
+    return viper_scpi_param_integer(ctx, idx, &spec, out, kw);
 }
 
 /* ---- Block data ---------------------------------------------------------------------------- */

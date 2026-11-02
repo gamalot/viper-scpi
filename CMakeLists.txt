@@ -30,6 +30,7 @@ add_library(viper_scpi STATIC
     src/scpi_params.c
     src/scpi_error.c
     src/scpi_status.c
+    src/scpi_units.c
     src/scpi_float.c)
 add_library(viper_scpi::viper_scpi ALIAS viper_scpi)
 target_include_directories(viper_scpi

@@ -24,13 +24,23 @@ static viper_scpi_result_t cmd_count(viper_scpi_context_t *ctx)
     }
     return viper_scpi_param_int32_kw(ctx, 0, 0, 100, 1, &v);
 }
-static const viper_scpi_node_t root[] = { { "COUNt", cmd_count, 0 }, VIPER_SCPI_NODE_END };
+/* Millivolts from "1.5", "1500 MV", MAX: units without floating point. */
+static const viper_scpi_integer_t mv = { 0, 30000, 0, -3, 0, viper_scpi_units_volt };
+static int32_t g_mv;
+static viper_scpi_result_t cmd_volt(viper_scpi_context_t *ctx)
+{
+    return viper_scpi_param_integer(ctx, 0, &mv, &g_mv, 0);
+}
+static const viper_scpi_node_t root[] = {
+    { "COUNt", cmd_count, 0 }, { "VOLTage", cmd_volt, 0 }, VIPER_SCPI_NODE_END
+};
 static const viper_scpi_config_t cfg = { .root = root, .write = out };
 static viper_scpi_context_t ctx;
 int main(void)
 {
     viper_scpi_init(&ctx, &cfg);
-    viper_scpi_input_buffer(&ctx, "*IDN?;*STB?;COUN 5;COUN?;SYST:ERR?\n", 35);
+    static const char msg[] = "*IDN?;*STB?;COUN 5;COUN?;VOLT 1500 MV;SYST:ERR?\n";
+    viper_scpi_input_buffer(&ctx, msg, sizeof msg - 1);
     return 0;
 }
 SRC
@@ -50,4 +60,8 @@ if arm-none-eabi-nm "$OUT/int_only.elf" | grep -E ' [Tt] (__aeabi_uldivmod|__aea
     echo "FAIL: integer-only program links 64-bit arithmetic helpers" >&2
     exit 1
 fi
-echo "OK: no printf/strtod or 64-bit helpers in an integer-only program"
+if arm-none-eabi-nm "$OUT/int_only.elf" | grep -E ' [Tt] __aeabi_[df](add|sub|mul|div|cmp|2|to)'; then
+    echo "FAIL: integer-only program links soft-float helpers" >&2
+    exit 1
+fi
+echo "OK: no printf/strtod, soft-float or 64-bit helpers in an integer-only program"

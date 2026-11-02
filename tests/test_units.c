@@ -248,6 +248,80 @@ static void test_prefix_scaling_is_exact(void)
     CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
 }
 
+static int32_t s_mv;
+static double s_num;
+static viper_scpi_numeric_kw_t s_kw;
+
+static const viper_scpi_integer_t mv_spec = { -30000, 30000, 1000, -3, 0, viper_scpi_units_volt };
+static const viper_scpi_number_t step_spec = { 0.0, 10.0, 5.0, viper_scpi_units_hertz,
+                                               VIPER_SCPI_NUM_UPDOWN };
+
+static viper_scpi_result_t cb_mv(viper_scpi_context_t *ctx)
+{
+    return viper_scpi_param_integer(ctx, 0, &mv_spec, &s_mv, NULL);
+}
+
+static viper_scpi_result_t cb_step(viper_scpi_context_t *ctx)
+{
+    return viper_scpi_param_number(ctx, 0, &step_spec, &s_num, &s_kw);
+}
+
+static int send_spec(viper_scpi_context_t *c, const char *line)
+{
+    viper_scpi_input_buffer(c, line, strlen(line));
+    viper_scpi_input_char(c, '\n');
+    return viper_scpi_error_pop(c);
+}
+
+/* The spec-driven parsers: integers in a scaled unit without floating
+ * point, and doubles with units, keywords and UP/DOWN from one const. */
+static void test_spec_parsers(void)
+{
+    static const viper_scpi_node_t root[] = {
+        { "MV", cb_mv, NULL }, { "STEP", cb_step, NULL }, VIPER_SCPI_NODE_END
+    };
+    static const viper_scpi_config_t cfg = { .root = root };
+    viper_scpi_context_t c;
+
+    (void)viper_scpi_init(&c, &cfg);
+    CHECK_INT(send_spec(&c, "MV 1.5"), 0);
+    CHECK_INT(s_mv, 1500);
+    CHECK_INT(send_spec(&c, "MV 1500 MV"), 0);
+    CHECK_INT(s_mv, 1500);
+    CHECK_INT(send_spec(&c, "MV 2.5E3mV"), 0);
+    CHECK_INT(s_mv, 2500);
+    CHECK_INT(send_spec(&c, "MV -0.0125V"), 0);
+    CHECK_INT(s_mv, -13);                          /* -12.5 mV, half away from zero */
+    CHECK_INT(send_spec(&c, "MV 1UV"), 0);
+    CHECK_INT(s_mv, 0);
+    CHECK_INT(send_spec(&c, "MV 30.0005"), -222);
+    CHECK_INT(send_spec(&c, "MV DEF"), 0);
+    CHECK_INT(s_mv, 1000);
+    CHECK_INT(send_spec(&c, "MV MAX"), 0);
+    CHECK_INT(s_mv, 30000);
+    CHECK_INT(send_spec(&c, "MV 1HZ"), -131);
+    CHECK_INT(send_spec(&c, "MV NAN"), -224);
+    CHECK_INT(send_spec(&c, "MV UP"), -104);       /* no VIPER_SCPI_NUM_UPDOWN */
+
+    CHECK_INT(send_spec(&c, "STEP 2.5KHZ"), -222);
+    CHECK_INT(send_spec(&c, "STEP 2500MHZ"), -222); /* MHZ is mega */
+    CHECK_INT(send_spec(&c, "STEP 2500 mHz"), -222);
+    CHECK_INT(send_spec(&c, "STEP 7"), 0);
+    CHECK(s_num == 7.0);
+    CHECK_INT(s_kw, VIPER_SCPI_KW_NONE);
+    s_num = -1.0;
+    CHECK_INT(send_spec(&c, "STEP UP"), 0);
+    CHECK_INT(s_kw, VIPER_SCPI_KW_UP);
+    CHECK(s_num == -1.0);                          /* left to the instrument */
+    CHECK_INT(send_spec(&c, "STEP MIN"), 0);
+    CHECK(s_num == 0.0);
+    CHECK_INT(s_kw, VIPER_SCPI_KW_MIN);
+
+    /* UP/DOWN accepted but nowhere to report them: a programming error. */
+    CHECK_INT(viper_scpi_param_number(&c, 0, &step_spec, &s_num, NULL),
+              VIPER_SCPI_RES_ERR_PARAM_INVALID);
+}
+
 int main(void)
 {
     test_hertz();
@@ -261,5 +335,6 @@ int main(void)
     test_api_arguments();
     test_custom_unit_table();
     test_prefix_scaling_is_exact();
+    test_spec_parsers();
     return test_summary("test_units");
 }

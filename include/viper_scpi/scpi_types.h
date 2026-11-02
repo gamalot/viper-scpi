@@ -121,6 +121,42 @@ typedef enum {
     VIPER_SCPI_KW_DOWN      /**< DOWN: step the current value down */
 } viper_scpi_numeric_kw_t;
 
+/** Flags of viper_scpi_number_t and viper_scpi_integer_t. */
+enum {
+    VIPER_SCPI_NUM_UPDOWN = 1 /**< Accept UP and DOWN (reported in @c kw) */
+};
+
+/**
+ * A range-checked double parameter, for viper_scpi_param_number(). Keep it
+ * const (in Flash) next to the callback; one spec serves the command and the
+ * query ("VOLT? MAX").
+ */
+typedef struct {
+    double min;                     /**< MINimum, and the lower limit */
+    double max;                     /**< MAXimum, and the upper limit */
+    double def;                     /**< DEFault */
+    const viper_scpi_unit_t *units; /**< Accepted units, NULL for none;
+                                         limits are in the base unit */
+    uint8_t flags;                  /**< VIPER_SCPI_NUM_* */
+} viper_scpi_number_t;
+
+/**
+ * A range-checked integer parameter in a scaled unit, for
+ * viper_scpi_param_integer(): the value is a count of 10^exp10 base units.
+ * With exp10 = -3 and the volt table, "1.5", "1500 MV" and "1.5E3MV" all
+ * give 1500 (mV). Parsed without floating point.
+ */
+typedef struct {
+    int32_t min;                    /**< MINimum, and the lower limit */
+    int32_t max;                    /**< MAXimum, and the upper limit */
+    int32_t def;                    /**< DEFault */
+    int16_t exp10;                  /**< Unit of the result: 10^exp10 base units */
+    uint8_t flags;                  /**< VIPER_SCPI_NUM_* */
+    const viper_scpi_unit_t *units; /**< Accepted units, NULL for none. Units
+                                         with a scale other than 1 (MIN, HOUR)
+                                         are not accepted here. */
+} viper_scpi_integer_t;
+
 /** Keyword/value pair for viper_scpi_param_choice(); lists end with NULL name. */
 typedef struct {
     const char *name;

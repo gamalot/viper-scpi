@@ -49,6 +49,8 @@ runs.
 
 | Function | Accepts | Notes |
 | --- | --- | --- |
+| `viper_scpi_param_number` | a double per a const `viper_scpi_number_t` spec: range, default, units, `MIN`/`MAX`/`DEF`, optionally `UP`/`DOWN` | the general one; the `_double_*kw*` functions below are shorthands |
+| `viper_scpi_param_integer` | an integer per a const `viper_scpi_integer_t` spec: the same, with the result a count of 10^`exp10` base units (`1.5` or `1500 MV` give 1500 for mV) | no floating point; units with a scale other than 1 (`MIN`, `HOUR`) are refused |
 | `viper_scpi_param_int32` | `42`, `-7`, `+3`, `1.5`, `3.2E1`, `0x1F`, `#HFF`, `#B1010`, `#Q17` | a decimal number is rounded half away from zero (`1.5` is 2, `-0.5` is -1), in integer arithmetic; sign only on decimal and `0x` |
 | `viper_scpi_param_uint32` | as above, 0..4294967295 | `-0` is accepted |
 | `viper_scpi_param_int32_kw` | an integer, `MIN`, `MAX`, `DEF` | range-checked; `NAN` is -224, `INF`/`NINF` -222 |

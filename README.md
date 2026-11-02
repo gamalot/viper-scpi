@@ -268,6 +268,23 @@ static const viper_scpi_node_t root[] = {
 
 ## Numbers with units
 
+One const spec per setting describes range, default, units and keywords;
+`viper_scpi_param_number()` (double) or `viper_scpi_param_integer()` (an
+integer in a scaled unit, without floating point) reads the parameter:
+
+```c
+static const viper_scpi_number_t volt = { 0.0, 30.0, 5.0, viper_scpi_units_volt, 0 };
+static const viper_scpi_integer_t mvolt = { 0, 30000, 5000, -3, 0, viper_scpi_units_volt };
+
+res = viper_scpi_param_number(ctx, 0, &volt, &volts, NULL);     /* 1.5, 1500 MV, MAX */
+res = viper_scpi_param_integer(ctx, 0, &mvolt, &millivolts, NULL); /* same input, in mV */
+```
+
+`viper_scpi_param_integer()` gives integer-only firmware decimals, exponents
+and units without linking `strtod`, `printf` or soft-float code: the count is
+of 10^`exp10` base units, rounded half away from zero. The older functions
+below are shorthands for these two.
+
 ```c
 double hz;
 res = viper_scpi_param_double_unit(ctx, 0, viper_scpi_units_hertz, &hz);
@@ -325,6 +342,8 @@ if (res == VIPER_SCPI_RES_OK && kw == VIPER_SCPI_KW_DOWN) volts -= step;
 
 `out` is left unchanged for `UP`/`DOWN`. There are `_ex` variants of the
 int32 and unit parsers too. The plain `_kw` parsers still reject `UP`/`DOWN`.
+With the spec parsers, set `VIPER_SCPI_NUM_UPDOWN` in the spec's `flags` and
+pass a `kw` pointer.
 
 ## Block data
 
