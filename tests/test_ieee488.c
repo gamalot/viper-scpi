@@ -28,7 +28,8 @@ static void test_idn_defaults(void)
         cfg.idn_model = NULL;
         cfg.idn_serial = NULL;
         cfg.idn_firmware = NULL;
-        CHECK_INT(viper_scpi_init(&c, &cfg), 0);
+        /* SYNTAX: the fixture tree has malformed patterns on purpose. */
+        CHECK_INT(viper_scpi_init(&c, &cfg), VIPER_SCPI_RES_ERR_SYNTAX);
         viper_scpi_input_buffer(&c, "*IDN?\n", 6);
         CHECK_STR(fx_out(), VIPER_SCPI_DEFAULT_MANUFACTURER "," VIPER_SCPI_DEFAULT_MODEL ","
                             VIPER_SCPI_DEFAULT_SERIAL "," VIPER_SCPI_DEFAULT_FIRMWARE "\n");
@@ -265,7 +266,8 @@ static void test_power_on(void)
 
     /* A fresh context reports the power-on event once (488.2 11.5.1.1.2). */
     fx_setup();
-    CHECK_INT(viper_scpi_init(&c, g_ctx.cfg), 0);
+    /* SYNTAX: the fixture tree has malformed patterns on purpose. */
+    CHECK_INT(viper_scpi_init(&c, g_ctx.cfg), VIPER_SCPI_RES_ERR_SYNTAX);
     viper_scpi_input_buffer(&c, "*ESR?\n*ESR?\n", 12);
     CHECK_STR(fx_out(), "128\n0\n");
 }

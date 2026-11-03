@@ -103,7 +103,10 @@ static viper_scpi_context_t scpi;
 
 void scpi_init(void)
 {
-    (void)viper_scpi_init(&scpi, &cfg);
+    if (viper_scpi_init(&scpi, &cfg) != VIPER_SCPI_RES_OK) {
+        /* -102: a node pattern is malformed and never matches;
+         * -220: the library was built with other VIPER_SCPI_* limits */
+    }
 }
 ```
 

@@ -88,7 +88,7 @@ static const viper_scpi_config_t cfg = {
 };
 static viper_scpi_context_t scpi;
 
-void app_init(void)        { viper_scpi_init(&scpi, &cfg); }
+void app_init(void)        { if (viper_scpi_init(&scpi, &cfg) != VIPER_SCPI_RES_OK) { /* fix cfg */ } }
 void uart_rx_byte(char c)  { viper_scpi_input_char(&scpi, c); }
 ```
 
@@ -256,7 +256,9 @@ static const viper_scpi_node_t root[] = {
 - Children continue after the whole pattern: with
   `{ "ROUTe:LAYer[:SUB]", cb, layer_nodes }`, both `ROUT:LAY:COUN?` and
   `ROUT:LAY:SUB:COUN?` reach `COUNt` in `layer_nodes`.
-- A malformed pattern (for example an unclosed bracket) never matches.
+- A malformed pattern (nested or unclosed brackets, an empty mnemonic) never
+  matches. `viper_scpi_init()` reports it by returning `-102` (the context is
+  initialised all the same), so check what it returns.
 - `NAME#` accepts a numeric suffix. `viper_scpi_suffix(ctx, i, default)` returns
   the suffix of the i-th `#` mnemonic of the full path, counted from the left.
   Omitted suffixes, and skipped optional `#` mnemonics, keep their position and
@@ -499,7 +501,8 @@ differs from the library's -- the library and the application were built with
 different `VIPER_SCPI_*` limits. Define the limits identically for both. (It
 is a macro passing `sizeof(viper_scpi_context_t)` to
 `viper_scpi_init_sized()`; `(viper_scpi_init)(ctx, cfg)` is the plain
-function.)
+function.) It returns `-102` if a pattern in `cfg.root` or `cfg.common` is
+malformed; the context is then initialised, but that node never matches.
 
 `viper_scpi_input_char()` / `viper_scpi_input_buffer()` accumulate a line and
 execute it on `\n`. CR, NUL, tab and the other control bytes are white space
@@ -533,6 +536,15 @@ Override any of these with `-D` on the compiler command line (see
 | `VIPER_SCPI_DOUBLE_DIGITS` | 0 (`DBL_DIG`, 15 for binary64) | Significant digits of double responses |
 | `VIPER_SCPI_MAX_SUFFIXES` | 4 | Numeric suffixes recorded per header |
 
+Floating-point parameters and responses use the C library's `strtod` and
+`snprintf`. They live in `src/scpi_float.c` alone, so firmware that calls none
+of `viper_scpi_param_double()`, `viper_scpi_param_number()` and
+`viper_scpi_result_double*()` links neither: integer responses are formatted
+without `printf`, and `viper_scpi_param_integer()` parses units without
+floating point. The `cortex-m` CI job checks this with integer-only
+Cortex-M0+ programs (`.github/linktest.sh`). Code sizes, and why to build the
+library with `-Os`, are in [docs/configuration.md](docs/configuration.md#code-size).
+
 ## Versions
 
 `viper_scpi.h` defines `VIPER_SCPI_VERSION_MAJOR`, `_MINOR`, `_PATCH` and
@@ -561,7 +573,9 @@ target_link_libraries(firmware PRIVATE viper_scpi::viper_scpi)
 ```
 
 or install it (`cmake --install build --prefix <dir>`) and use
-`find_package(viper_scpi 0.2 REQUIRED)` with the same target name.
+`find_package(viper_scpi 0.6 REQUIRED)` with the same target name. While the
+major version is 0 the package accepts only a request for its own minor
+version.
 
 ## Continuous integration
 
@@ -583,19 +597,22 @@ The same checks can be run locally; see the commands in the workflow file.
 
 ## Limitations
 
-- Optional brackets in patterns do not nest (`[:A[:B]]`).
-- Unit conversion is multiplicative only (no offsets such as degF).
-- Floating-point I/O uses `strtod`/`snprintf` from the C library. They live
-  in `src/scpi_float.c` alone, so firmware that never calls a double API
-  (`viper_scpi_param_double*`, `viper_scpi_result_double*`) links neither:
-  integer responses are formatted without `printf`. The `cortex-m` CI job
-  checks this with an integer-only Cortex-M0+ program (`.github/linktest.sh`).
-- In the message-exchange model a reply holds at most one generated block,
-  and lines separated by `\n` inside one transport message are separate
-  program messages (so a query on the first line is interrupted by the
-  second) unless `VIPER_SCPI_OPT_EOM_MESSAGES` is set.
+- Optional brackets in patterns do not nest (`[:A[:B]]`): such a node never
+  matches, and `viper_scpi_init()` returns `-102`.
+- Unit conversion is multiplicative only: a unit has a scale factor but no
+  offset, so degrees Fahrenheit or Celsius to kelvin are converted in the
+  callback.
+- In the message-exchange model a reply holds at most one block from
+  `viper_scpi_result_block_fill()`; a second in the same reply is dropped
+  with `-400` (`viper_scpi_result_block()` copies its data and has no such
+  limit).
+- In the message-exchange model, lines separated by `\n` inside one transport
+  message are separate program messages, as IEEE 488.2 defines them: a query
+  on the first line is interrupted (`-410`) by the second, unless
+  `VIPER_SCPI_OPT_EOM_MESSAGES` is set.
 
-Planned work, with priorities and acceptance criteria, is in
+Every change is in [CHANGELOG.md](CHANGELOG.md). The review backlogs the
+library was built from, all items done, are in
 [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
 
 ## License

@@ -16,7 +16,8 @@ code usually points straight at the cause.
 - The query form of a set-only command (or the reverse): the callback returns
   -113 for the form it does not support, and `*RST?`/`*IDN` are -113.
 - `*TRG` without a `trigger` hook in the configuration.
-- A malformed node pattern (unclosed `[`) never matches. Test every command.
+- A malformed node pattern (nested or unclosed `[`) never matches;
+  `viper_scpi_init()` returned -102 for it.
 
 **-363 Input buffer overrun**
 - The program message is longer than `VIPER_SCPI_BUFFER_SIZE` (128 by

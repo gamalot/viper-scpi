@@ -1158,6 +1158,28 @@ static void store(viper_scpi_context_t *ctx, char c)
 
 /* ---- Public input API --------------------------------------------------------- */
 
+/* False if a pattern in @p list, or (with @p children) below it, is malformed:
+ * nested or unclosed brackets, an empty mnemonic. Such a node never matches.
+ * Levels deeper than resolve() goes are not checked. */
+static bool patterns_valid(const viper_scpi_node_t *list, bool children, unsigned depth)
+{
+    if (list == NULL || depth > MAX_TREE_DEPTH) {
+        return true;
+    }
+    for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
+        const char *p = n->pattern;
+        viper_scpi_pattern_item_t it;
+        int r;
+
+        while ((r = viper_scpi_pattern_next(&p, &it)) == 1) {
+        }
+        if (r != 0 || (children && !patterns_valid(n->children, true, depth + 1))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 viper_scpi_result_t viper_scpi_init_sized(viper_scpi_context_t *ctx,
                                           const viper_scpi_config_t *cfg, size_t ctx_size)
 {
@@ -1168,6 +1190,9 @@ viper_scpi_result_t viper_scpi_init_sized(viper_scpi_context_t *ctx,
     ctx->cfg = cfg;
     ctx->esr = VIPER_SCPI_ESR_PON; /* IEEE 488.2 11.5.1.1.2: power on */
     viper_scpi_status_preset(ctx);
+    if (!patterns_valid(cfg->root, true, 0) || !patterns_valid(cfg->common, false, 0)) {
+        return VIPER_SCPI_RES_ERR_SYNTAX; /* initialised; the bad node never matches */
+    }
     return VIPER_SCPI_RES_OK;
 }
 

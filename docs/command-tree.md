@@ -65,8 +65,10 @@ the two forms. A pattern written all in capitals (`"DC"`) has one form.
 - Children continue after the whole pattern. With
   `{ "ROUTe:LAYer[:SUB]", cb, layer_nodes }`, `ROUT:LAY:COUN?` and
   `ROUT:LAY:SUB:COUN?` both reach `COUNt` in `layer_nodes`.
-- A malformed pattern (an unclosed bracket, an empty mnemonic) never matches.
-  Nothing warns about it, so cover each command with a test.
+- A malformed pattern (nested or unclosed brackets, an empty mnemonic) never
+  matches. `viper_scpi_init()` returns -102 for it (the context is
+  initialised all the same), so check what it returns; a test per command
+  still catches a pattern that is valid but not the one you meant.
 
 ## Numeric suffixes
 

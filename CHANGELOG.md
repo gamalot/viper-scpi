@@ -6,6 +6,19 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Changed
+
+- `viper_scpi_init()` checks the patterns of `cfg.root` (with all children)
+  and `cfg.common` and returns `-102` if one is malformed: nested brackets
+  (`[:A[:B]]`), an unclosed or stray bracket, an empty mnemonic. Such a node
+  never matched, silently; the context is still initialised as before, so
+  only code that checks the result sees a difference.
+- README: the limitations are restated as they are (the floating-point note
+  moved to the configuration section and now names
+  `viper_scpi_param_number()`, which links it too), and the
+  `find_package()` example asks for 0.6 instead of 0.2, which the package
+  refuses.
+
 ## [0.6.2] - 2026-11-03
 
 No API or behaviour change: upgrading from 0.6.1 needs no source change.

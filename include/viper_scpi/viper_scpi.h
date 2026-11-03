@@ -29,7 +29,9 @@ extern "C" {
  * if the caller's viper_scpi_context_t has a different size than the
  * library's -- the library and the application were compiled with different
  * VIPER_SCPI_* limits (or headers of another version); @p ctx is then left
- * untouched instead of being overrun.
+ * untouched instead of being overrun. Returns SYNTAX if a pattern in
+ * cfg->root or cfg->common is malformed (nested or unclosed brackets, an
+ * empty mnemonic): @p ctx is initialised, but that node never matches.
  */
 #define viper_scpi_init(ctx, cfg) \
     viper_scpi_init_sized((ctx), (cfg), sizeof(viper_scpi_context_t))

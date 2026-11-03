@@ -129,6 +129,57 @@ static void test_malformed_patterns_never_match(void)
     CHECK_STR(fx_out(), "");
 }
 
+static viper_scpi_result_t cb_none(viper_scpi_context_t *ctx)
+{
+    (void)ctx;
+    return VIPER_SCPI_RES_OK;
+}
+
+static viper_scpi_result_t init_with(const viper_scpi_node_t *root,
+                                     const viper_scpi_node_t *common)
+{
+    viper_scpi_config_t cfg = { .root = root, .common = common };
+    viper_scpi_context_t c;
+
+    return viper_scpi_init(&c, &cfg);
+}
+
+static void test_init_reports_malformed_patterns(void)
+{
+    static const viper_scpi_node_t leaf_ok[] = { { "LEAF", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t leaf_bad[] = { { "LE[AF", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t good[] = {
+        { "VOLTage[:LEVel]", cb_none, NULL },
+        { ":TRIGger[:SEQuence]:SOURce", cb_none, NULL },
+        { "[CHANnel#]", NULL, leaf_ok },
+        VIPER_SCPI_NODE_END
+    };
+    static const viper_scpi_node_t nested[] = { { "NEST[:A[:B]]", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t unclosed[] = { { "A[:B", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t stray[] = { { "A]:B", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t empty[] = { { "A::[]", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t deep_bad[] = { { "SUB", NULL, leaf_bad }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t common_ok[] = { { "SAV", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t common_bad[] = { { "SAV[", cb_none, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_config_t cfg = { .root = nested };
+    viper_scpi_context_t c;
+
+    CHECK_INT(init_with(good, common_ok), VIPER_SCPI_RES_OK);
+    CHECK_INT(init_with(NULL, NULL), VIPER_SCPI_RES_OK);
+    CHECK_INT(init_with(nested, NULL), VIPER_SCPI_RES_ERR_SYNTAX);
+    CHECK_INT(init_with(unclosed, NULL), VIPER_SCPI_RES_ERR_SYNTAX);
+    CHECK_INT(init_with(stray, NULL), VIPER_SCPI_RES_ERR_SYNTAX);
+    CHECK_INT(init_with(empty, NULL), VIPER_SCPI_RES_ERR_SYNTAX);
+    CHECK_INT(init_with(deep_bad, NULL), VIPER_SCPI_RES_ERR_SYNTAX);
+    CHECK_INT(init_with(good, common_bad), VIPER_SCPI_RES_ERR_SYNTAX);
+
+    /* The context is initialised all the same; the bad node never matches. */
+    CHECK_INT(viper_scpi_init(&c, &cfg), VIPER_SCPI_RES_ERR_SYNTAX);
+    viper_scpi_input_buffer(&c, "NEST\n", 5);
+    CHECK_INT(viper_scpi_error_pop(&c), -113);
+    CHECK_INT(viper_scpi_error_pop(&c), 0);
+}
+
 static void test_existing_single_item_forms_still_work(void)
 {
     fx_setup();
@@ -199,6 +250,7 @@ int main(void)
     test_pattern_with_children();
     test_relative_path_after_multi_mnemonic();
     test_malformed_patterns_never_match();
+    test_init_reports_malformed_patterns();
     test_existing_single_item_forms_still_work();
     test_more_suffixes_than_recorded();
     return test_summary("test_patterns");

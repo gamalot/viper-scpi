@@ -94,7 +94,7 @@ typedef viper_scpi_result_t (*viper_scpi_cmd_callback_t)(viper_scpi_context_t *c
  *  - "CHANnel#" numeric suffix: CHAN, CHAN2 and CHANNEL12 all match; the
  *               number is read with viper_scpi_suffix().
  * They combine, e.g. "TRIGger[:SEQuence]:SOURce" or "[CHANnel#]". Optional
- * brackets do not nest. A node whose mnemonics are all optional may be left
+ * brackets do not nest: viper_scpi_init() reports a nested or unclosed one. A node whose mnemonics are all optional may be left
  * out of the header entirely. Sibling arrays are terminated by
  * VIPER_SCPI_NODE_END.
  */

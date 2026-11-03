@@ -87,9 +87,9 @@ Measured with arm-none-eabi-gcc 13.2, `-Os`, Cortex-M0+, newlib, `--gc-sections`
 
 | Program | Text |
 | --- | --- |
-| all library objects together | 13.0 KB |
-| a program using `viper_scpi_param_integer()` without units, integer responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 10.3 KB in total, startup code included |
-| the same program also taking `VOLT 1500 MV` into millivolts with a unit table | 11.0 KB |
+| all library objects together | 13.1 KB |
+| a program using `viper_scpi_param_integer()` without units, integer responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 10.4 KB in total, startup code included |
+| the same program also taking `VOLT 1500 MV` into millivolts with a unit table | 11.1 KB |
 | the same program also using one double parser and `viper_scpi_result_double()` | 53 KB |
 
 The optimisation level changes these far more than any library release: with

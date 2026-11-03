@@ -301,8 +301,8 @@ int main(void)
         "IDN?*RSTCLSOPCESRSTBSYST:ERR?";
     const unsigned long iterations = 1000000ul;
 
-    if (viper_scpi_init(&ctx, &config) != VIPER_SCPI_RES_OK) {
-        return 1;
+    if (viper_scpi_init(&ctx, &config) != VIPER_SCPI_RES_ERR_SYNTAX) {
+        return 1; /* the tree holds malformed patterns on purpose */
     }
     for (unsigned long i = 0; i < iterations; i++) {
         char c;
