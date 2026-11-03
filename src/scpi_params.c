@@ -323,9 +323,9 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, int32_t shift,
                                          uint32_t *mag)
 {
     uint32_t base = 10;
+    unsigned bits = 4; /* log2(base) for the non-decimal bases */
     uint32_t acc = 0;
     uint32_t limit;
-    uint32_t limit_digit;
     size_t i = 0;
 
     *neg = false;
@@ -334,9 +334,9 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, int32_t shift,
             return VIPER_SCPI_RES_ERR_DATA_TYPE;
         }
         switch (viper_scpi_upper(s[1])) {
-        case 'H': base = 16; break;
-        case 'B': base = 2; break;
-        case 'Q': base = 8; break;
+        case 'H': base = 16; bits = 4; break;
+        case 'B': base = 2; bits = 1; break;
+        case 'Q': base = 8; bits = 3; break;
         default: return VIPER_SCPI_RES_ERR_DATA_TYPE;
         }
         i = 2;
@@ -355,16 +355,16 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, int32_t shift,
     if (i >= n) {
         return VIPER_SCPI_RES_ERR_DATA_TYPE;
     }
-    /* acc * base + d overflows exactly when acc > limit, or acc == limit and
-     * d > limit_digit. */
-    limit = UINT32_MAX / base;
-    limit_digit = UINT32_MAX % base;
+    /* acc * base + d overflows exactly when acc > UINT32_MAX / base: the
+     * base is a power of two, so UINT32_MAX % base is base - 1, the largest
+     * digit. Shifts, not divisions (no divide helper on Cortex-M0). */
+    limit = UINT32_MAX >> bits;
     for (; i < n; i++) {
         int d = digit_value(s[i]);
         if (d < 0 || (uint32_t)d >= base) {
             return VIPER_SCPI_RES_ERR_DATA_TYPE;
         }
-        if (acc > limit || (acc == limit && (uint32_t)d > limit_digit)) {
+        if (acc > limit) {
             /* Keep validating: a later non-digit is a data type error. */
             for (i++; i < n; i++) {
                 d = digit_value(s[i]);
@@ -374,7 +374,7 @@ static viper_scpi_result_t parse_integer(const char *s, size_t n, int32_t shift,
             }
             return VIPER_SCPI_RES_ERR_OUT_OF_RANGE;
         }
-        acc = acc * base + (uint32_t)d;
+        acc = (acc << bits) | (uint32_t)d;
     }
     *mag = acc;
     return VIPER_SCPI_RES_OK;

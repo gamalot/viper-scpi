@@ -90,22 +90,32 @@ static uint8_t esr_bit_for(viper_scpi_result_t code)
     return code > 0 ? VIPER_SCPI_ESR_DDE : 0;
 }
 
+/* Slot of the @p i-th oldest entry (i < VIPER_SCPI_ERROR_QUEUE_SIZE): a
+ * subtraction, not '%', which would link a divide helper on Cortex-M0 for
+ * a queue size that is not a power of two. */
+static size_t err_slot(const viper_scpi_context_t *ctx, size_t i)
+{
+    size_t slot = (size_t)ctx->err_head + i;
+
+    return (slot >= (VIPER_SCPI_ERROR_QUEUE_SIZE)) ? slot - (VIPER_SCPI_ERROR_QUEUE_SIZE) : slot;
+}
+
 void viper_scpi_error_push_info(viper_scpi_context_t *ctx, viper_scpi_result_t code,
                                 const char *info)
 {
     if (code == 0) {
         return;
     }
-    viper_scpi_event_set(ctx, esr_bit_for(code));
+    ctx->esr = (uint8_t)(ctx->esr | esr_bit_for(code)); /* SRQ: updated below */
 
     if (ctx->err_count >= VIPER_SCPI_ERROR_QUEUE_SIZE) {
         /* Queue full: the newest entry becomes "Queue overflow". */
-        size_t last = ((size_t)ctx->err_head + ctx->err_count - 1) % (VIPER_SCPI_ERROR_QUEUE_SIZE);
+        size_t last = err_slot(ctx, (size_t)ctx->err_count - 1u);
         ctx->err_queue[last] = VIPER_SCPI_RES_ERR_QUEUE_OVERFLOW;
         ctx->err_info[last] = NULL;
         ctx->esr = (uint8_t)(ctx->esr | VIPER_SCPI_ESR_DDE); /* -350 is a -3xx error */
     } else {
-        size_t slot = ((size_t)ctx->err_head + ctx->err_count) % (VIPER_SCPI_ERROR_QUEUE_SIZE);
+        size_t slot = err_slot(ctx, ctx->err_count);
         ctx->err_queue[slot] = code;
         ctx->err_info[slot] = info;
         ctx->err_count++;
@@ -136,8 +146,7 @@ void viper_scpi_queue_result(viper_scpi_context_t *ctx, viper_scpi_result_t res)
     if (ctx->fail_from != 0) {
         /* Not again if viper_scpi_fail() queued it during this call. */
         for (size_t i = (size_t)ctx->fail_from - 1u; i < ctx->err_count; i++) {
-            if (ctx->err_queue[((size_t)ctx->err_head + i) % (VIPER_SCPI_ERROR_QUEUE_SIZE)] ==
-                res) {
+            if (ctx->err_queue[err_slot(ctx, i)] == res) {
                 return;
             }
         }
@@ -159,7 +168,7 @@ viper_scpi_result_t viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const c
     if (info != NULL) {
         *info = ctx->err_info[ctx->err_head];
     }
-    ctx->err_head = (uint8_t)((ctx->err_head + 1) % (VIPER_SCPI_ERROR_QUEUE_SIZE));
+    ctx->err_head = (uint8_t)err_slot(ctx, 1);
     ctx->err_count--;
     viper_scpi_srq_update(ctx); /* EAV may fall */
     return code;
@@ -214,8 +223,18 @@ uint8_t viper_scpi_status_byte(const viper_scpi_context_t *ctx)
 
 void viper_scpi_srq_update(viper_scpi_context_t *ctx)
 {
-    uint8_t stb = viper_scpi_status_byte(ctx);
+    uint8_t stb;
     bool now;
+
+    if ((ctx->sre & ~VIPER_SCPI_STB_MSS) == 0) {
+        /* No service request enabled (the default): the result of the full
+         * evaluation below, without computing the status byte. */
+        ctx->srq_prev = 0;
+        ctx->srq_new = 0;
+        ctx->rqs = 0;
+        return;
+    }
+    stb = viper_scpi_status_byte(ctx);
 
     if (!viper_scpi_output_pending(ctx)) {
         /* A reply still being produced cannot be read yet: it must not raise

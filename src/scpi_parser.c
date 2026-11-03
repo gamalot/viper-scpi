@@ -119,22 +119,71 @@ void viper_scpi_output_discard(viper_scpi_context_t *ctx)
     viper_scpi_srq_update(ctx);
 }
 
-/* Writes the separator that precedes a response value. */
-static void result_begin(viper_scpi_context_t *ctx)
+/*
+ * The separator that precedes a response value -- ',' within a command's
+ * response, ';' between commands, nothing first -- stored at @p *dst (one
+ * byte at most). Returns its length. Callers write it together with the
+ * value, so that a stream transport gets one write() per value.
+ */
+static size_t result_sep(viper_scpi_context_t *ctx, char *dst)
 {
+    size_t n = 0;
+
     if (ctx->unit_has_output) {
-        emit(ctx, ",", 1);
+        dst[n++] = ',';
     } else if (ctx->line_has_output) {
-        emit(ctx, ";", 1);
+        dst[n++] = ';';
     }
     ctx->unit_has_output = 1;
     ctx->line_has_output = 1;
+    return n;
+}
+
+/* Prepends the separator to a value built backwards in a local buffer. */
+static char *with_sep(viper_scpi_context_t *ctx, char *p)
+{
+    char sep;
+
+    if (result_sep(ctx, &sep) != 0) {
+        *--p = sep;
+    }
+    return p;
 }
 
 void viper_scpi_result_text(viper_scpi_context_t *ctx, const char *str)
 {
-    result_begin(ctx);
-    emit(ctx, str, strlen(str));
+    char buf[24]; /* separator and a short value (an *IDN? field) in one write */
+    size_t len = strlen(str);
+    size_t n = result_sep(ctx, buf);
+
+    if (n + len < sizeof buf) {
+        memcpy(buf + n, str, len + 1u); /* with its NUL, as a string */
+        emit(ctx, buf, n + len);
+        return;
+    }
+    emit(ctx, buf, n);
+    emit(ctx, str, len);
+}
+
+/* v / 10 and v % 10 with shifts and adds: Cortex-M0 has no divide
+ * instruction, and a division would link the C library's helper (Hacker's
+ * Delight 10-15; exact for every uint32_t, checked exhaustively). */
+static uint32_t div10(uint32_t v, uint32_t *rem)
+{
+    uint32_t q = (v >> 1) + (v >> 2);
+    uint32_t r;
+
+    q += q >> 4;
+    q += q >> 8;
+    q += q >> 16;
+    q >>= 3;
+    r = v - q * 10u;
+    if (r > 9u) {
+        q++;
+        r -= 10u;
+    }
+    *rem = r;
+    return q;
 }
 
 /* Decimal digits of @p v, written backwards from @p end; returns the start.
@@ -142,15 +191,16 @@ void viper_scpi_result_text(viper_scpi_context_t *ctx, const char *str)
 static char *format_u32(char *end, uint32_t v)
 {
     do {
-        *--end = (char)('0' + v % 10u);
-        v /= 10u;
+        uint32_t d;
+        v = div10(v, &d);
+        *--end = (char)('0' + d);
     } while (v != 0);
     return end;
 }
 
 void viper_scpi_result_int(viper_scpi_context_t *ctx, int32_t value)
 {
-    char buf[12];
+    char buf[13];
     char *end = buf + sizeof buf;
     /* Magnitude in unsigned arithmetic, so INT32_MIN is handled too. */
     char *p = format_u32(end, value < 0 ? 0u - (uint32_t)value : (uint32_t)value);
@@ -158,7 +208,7 @@ void viper_scpi_result_int(viper_scpi_context_t *ctx, int32_t value)
     if (value < 0) {
         *--p = '-';
     }
-    result_begin(ctx);
+    p = with_sep(ctx, p);
     emit(ctx, p, (size_t)(end - p));
 }
 
@@ -166,16 +216,20 @@ void viper_scpi_result_uint(viper_scpi_context_t *ctx, uint32_t value)
 {
     char buf[12];
     char *end = buf + sizeof buf;
-    char *p = format_u32(end, value);
+    char *p = with_sep(ctx, format_u32(end, value));
 
-    result_begin(ctx);
     emit(ctx, p, (size_t)(end - p));
 }
 
 void viper_scpi_result_bool(viper_scpi_context_t *ctx, bool value)
 {
-    result_begin(ctx);
-    emit(ctx, value ? "1" : "0", 1);
+    char buf[2];
+    char *end = buf + sizeof buf;
+    char *p = end;
+
+    *--p = value ? '1' : '0';
+    p = with_sep(ctx, p);
+    emit(ctx, p, (size_t)(end - p));
 }
 
 /* Writes the separator and "#<n><length>"; false if the length needs more
@@ -197,7 +251,7 @@ static bool block_header(viper_scpi_context_t *ctx, uint32_t len)
     p -= 2;
     p[0] = '#';
     p[1] = digits;
-    result_begin(ctx);
+    p = with_sep(ctx, p);
     emit(ctx, p, (size_t)(end - p));
     return true;
 }
@@ -271,8 +325,11 @@ static void emit_escaped(viper_scpi_context_t *ctx, const char *str)
 
 void viper_scpi_result_string_pair(viper_scpi_context_t *ctx, const char *a, const char *b)
 {
-    result_begin(ctx);
-    emit(ctx, "\"", 1);
+    char open[2];
+    size_t n = result_sep(ctx, open);
+
+    open[n++] = '"';
+    emit(ctx, open, n);
     emit_escaped(ctx, a);
     if (b != NULL) {
         emit(ctx, ";", 1);
@@ -577,12 +634,26 @@ static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
                                         const viper_scpi_node_t *list,
                                         const segment_t *segs, size_t nseg, unsigned depth)
 {
+    char first;
+
     if (list == NULL || depth > MAX_TREE_DEPTH) {
         return NULL;
     }
+    first = (nseg > 0) ? viper_scpi_upper(segs[0].str[0]) : '\0';
     for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
-        const viper_scpi_node_t *hit =
-            match_items(ctx, n, n->pattern, segs, nseg, depth);
+        const viper_scpi_node_t *hit;
+        const char *q = n->pattern;
+
+        /* The quick reject of match_items() for the first mnemonic, before
+         * the call: every command walks the siblings of each level (and the
+         * built-in commands the whole user tree), and most fail here. */
+        while (*q == ':') {
+            q++;
+        }
+        if (first != '\0' && *q != '\0' && *q != '[' && viper_scpi_upper(*q) != first) {
+            continue;
+        }
+        hit = match_items(ctx, n, n->pattern, segs, nseg, depth);
         if (hit != NULL) {
             return hit;
         }

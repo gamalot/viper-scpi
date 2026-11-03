@@ -6,6 +6,25 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Changed
+
+Efficiency and structure findings of the second full code review; no API
+or behaviour change.
+
+- No division in the integer code: decimal output divides by 10 with shifts
+  and adds, non-decimal input shifts, and the error queue wraps by
+  subtraction. Integer-only firmware on Cortex-M0+ no longer links the C
+  library's divide helpers; a 10-digit integer response takes about 530
+  cycles instead of 2710.
+- Fewer `write()` calls on the stream model: the separator travels with
+  the value (and with a short text value), so `*IDN?` makes 5 calls instead
+  of 8, three integers 4 instead of 6.
+- Header resolution skips a sibling whose first mnemonic cannot match
+  before calling the matcher, and the service-request update returns early
+  while no request is enabled (the default). Commands take 10-33 % fewer
+  cycles on Cortex-M0+ (`SYST:ERR?` with a 21-node user tree: 11174 ->
+  8859).
+
 ## [0.6.0] - 2026-11-03
 
 The remaining 20 findings of the second full code review, mostly where the
