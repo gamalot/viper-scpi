@@ -87,9 +87,9 @@ Measured with arm-none-eabi-gcc 13.2, `-Os`, Cortex-M0+, newlib, `--gc-sections`
 
 | Program | Text |
 | --- | --- |
-| all library objects together | 12.1 KB |
-| a program using `viper_scpi_param_integer()` without units, integer responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 9.8 KB in total, startup code included |
-| the same program also taking `VOLT 1500 MV` into millivolts with a unit table | 10.6 KB |
+| all library objects together | 13.1 KB |
+| a program using `viper_scpi_param_integer()` without units, integer responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 10.4 KB in total, startup code included |
+| the same program also taking `VOLT 1500 MV` into millivolts with a unit table | 11.1 KB |
 | the same program also using one double parser and `viper_scpi_result_double()` | 53 KB |
 
 Which files a program links depends on what it names:
@@ -97,7 +97,7 @@ Which files a program links depends on what it names:
 - `src/scpi_float.c` (and with it the C library's `snprintf`/`strtod` and the
   soft-float code behind them) only if it calls `viper_scpi_param_double()`,
   `viper_scpi_param_number()` or a `viper_scpi_result_double*()` function.
-  That is the 43 KB difference above.
+  That is the 42 KB difference above.
 - `src/scpi_units.c` (the unit parser, multiplier prefixes and the
   ready-made tables, about 1.1 KB) only if it uses a unit table: one of
   `viper_scpi_units_*` or its own `VIPER_SCPI_UNIT_TABLE()`. The parsers

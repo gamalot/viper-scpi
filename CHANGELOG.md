@@ -6,10 +6,12 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
-### Changed
+## [0.6.1] - 2026-11-03
 
-Efficiency and structure findings of the second full code review; no API
-or behaviour change.
+The efficiency and structure findings of the second full code review. No
+API or behaviour change: upgrading from 0.6.0 needs no source change.
+
+### Changed
 
 - No division in the integer code: decimal output divides by 10 with shifts
   and adds, non-decimal input shifts, and the error queue wraps by
@@ -28,6 +30,8 @@ or behaviour change.
   one place: the streamed first command, the line executor, the user common
   commands and the resumed deferred command share them. The documentation
   of `viper_scpi_defer()` now says that a stream handler cannot defer.
+- The code sizes in the configuration guide are measured again for this
+  release (an integer-only program on Cortex-M0+: 10.4 KB).
 
 ## [0.6.0] - 2026-11-03
 
@@ -460,7 +464,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/gamalot/viper-scpi/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gamalot/viper-scpi/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/gamalot/viper-scpi/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/gamalot/viper-scpi/compare/v0.4.0...v0.5.0
