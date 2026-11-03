@@ -14,7 +14,8 @@ output model added), all CI jobs green (run 41305521159).
 > `v0.2.0` (`v0.1.0` marks `d385786`). Item 1.5 cites IEEE 488.2 7.7.5 without the standard text having been
 > checked first-hand.
 >
-> **Open (2026-11-02):** section 5 lists what was found after 0.2.0.
+> **Open (2026-11-03):** section 6 lists what was found after 0.4.0 (section 5,
+> found after 0.2.0, is fixed).
 
 ## Ground rules
 
@@ -56,8 +57,9 @@ The first production user is a USBTMC/USB488 instrument on an LP-MSPM0G5187
 (Cortex-M0+, TI Arm Clang 5.1.1, TinyUSB). It uses the message-exchange model
 (`output_buffer`, `viper_scpi_output_read`, `viper_scpi_take_service_request`,
 `viper_scpi_device_clear`, and since 0.2.0 `viper_scpi_input_discard`,
-`viper_scpi_serial_poll`, `viper_scpi_rqs_delivered`) and is verified against a
-real VISA with a 47-item hardware test. That project is not in this repository, so it cannot be run
+`viper_scpi_serial_poll`, `viper_scpi_rqs_delivered`), parses integers only
+(since 0.4.0 with `viper_scpi_param_integer`, never doubles) and is verified
+against a real VISA with a 57-item hardware test. That project is not in this repository, so it cannot be run
 from here; keep the message-exchange semantics in `tests/test_message.c`
 intact and extend that suite rather than rely on hardware.
 
@@ -434,3 +436,90 @@ decision is tested and documented in the README's error table; `#HFF`,
 `#B101`, `#Q17`, `#0...` and complete definite blocks behave as before; the
 message-exchange fuzz loop (item 4.3) still passes under ASan/UBSan. Record the
 behaviour change in `CHANGELOG.md` under Unreleased as a fix.
+
+---
+
+## 6. Found after 0.4.0
+
+Both from moving the MSPM0 USBTMC firmware from 0.2.1 to 0.4.0 (2026-11-03).
+The upgrade itself was one line and passed the 57-item hardware test; these
+are costs and traps the upgrade showed, not failures.
+
+### 6.1 `viper_scpi_param_integer()` links the unit parser even without units
+
+**Problem.** The firmware's only number parameter is `TEST:DATA? <n>`, a
+spec with `units = NULL`:
+
+```c
+static const viper_scpi_integer_t size = { .min = 0, .max = 100000000, .def = 1000 };
+```
+
+Yet the link map (TI Arm Clang 5.1.1, `-O2`, `--gc-sections` via the static
+archive) contains all of `scpi_units.c`: 956 bytes of code
+(`viper_scpi_number_unit` 712, `viper_scpi_scan_number` 244) and the 72-byte
+`prefixes` table. None of it can run: `integer_value()` in
+`src/scpi_params.c` takes the `spec->units == NULL` branch
+(`parse_integer()`), but the other branch calls `viper_scpi_number_unit()`,
+so the reference is there and the linker keeps the object. On this Cortex-M0+
+that is about 40 % of the library's 2.3 KB growth from 0.2.1 to 0.4.0, and it
+lands on exactly the integer-only firmware that `param_integer` was added for.
+`docs/configuration.md` only promises that `scpi_float.c` stays out; the
+unit code is not mentioned either way.
+
+**Change.** Make the unit parser reachable only from data that a caller
+names. One way: let the unit table carry it (each `viper_scpi_unit_t` table,
+or a small wrapper struct the `units` field points to, holds a pointer to the
+parsing function), so `integer_value()` calls through `spec->units` and never
+names `viper_scpi_number_unit()`; the unit tables live in `scpi_units.c` and
+pull it in only when one of them is referenced. A separate entry point
+(`viper_scpi_param_integer_unit()`) would also do, at the cost of a second
+function for the same job, which 0.4.0 just removed. Pick one; do not grow the
+context or the spec for it.
+
+**Done when** the `cortex-m` CI link test has a case that calls
+`viper_scpi_param_integer()` with `units = NULL` only and fails if
+`viper_scpi_number_unit` (or anything else from `scpi_units.c`) is in the
+image, next to the existing "units link no soft-float" case;
+`docs/configuration.md` says which parsers pull in `scpi_units.c`; the
+behaviour with units is unchanged (`tests/test_units.c`).
+
+### 6.2 The two spec structs order their fields differently, and the docs initialise them by position
+
+**Problem.**
+
+```c
+typedef struct { double  min, max, def; const viper_scpi_unit_t *units; uint8_t flags; } viper_scpi_number_t;
+typedef struct { int32_t min, max, def; int16_t exp10; uint8_t flags; const viper_scpi_unit_t *units; } viper_scpi_integer_t;
+```
+
+`units` is fourth in one and last in the other. With positional
+initialisers, which is how the README, `docs/getting-started.md`,
+`docs/parameters.md`, the doc comments in `viper_scpi.h` and the tests write
+them (25 places), moving a spec from one parser to the other means
+reordering it by hand. Getting it wrong is not always diagnosed:
+`{ 0, 30000, 0, viper_scpi_units_volt, 0 }` written for the integer spec is a
+pointer-to-integer conversion that some compilers only warn about. The
+upgrade guide given for 0.4.0 used the positional form too; the MSPM0
+firmware uses designated initialisers to stay clear of it. The ground rules
+above already ask for designated initialisers for configuration structs;
+the specs are the same kind of thing.
+
+**Change.**
+- Write every spec in the README, the docs, the `viper_scpi.h` comments and
+  the examples with designated initialisers
+  (`{ .min = 0, .max = 30000, .exp10 = -3, .units = viper_scpi_units_volt }`).
+  This is the user-visible fix and is not breaking. Tests may stay positional
+  where that is clearer, but at least one test per struct should use the
+  designated form so the documented spelling compiles in CI (strict-c99
+  and the C++ consumer check; designated initialisers in C++ need C++20, so
+  check what that job builds as and say in the docs what C++ users write).
+- Optionally make the order agree (`exp10` last in `viper_scpi_integer_t`, so
+  both start `min, max, def, units, flags`). That is **Breaking** for
+  positional users, and only partly diagnosed (pointer ↔ integer), so do it
+  only together with the docs change and name it in `CHANGELOG.md`. If the
+  order stays, say in the header why the two differ.
+
+**Done when** no example a user would copy (README, `docs/`, header comments,
+`examples/`) initialises a spec by position, the designated form is
+compiled in CI, and the order decision is recorded (in the header comment if
+kept, under **Breaking** in `CHANGELOG.md` if changed).
