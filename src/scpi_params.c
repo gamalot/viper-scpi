@@ -248,6 +248,9 @@ static viper_scpi_result_t parse_decimal(const char *s, size_t n, int32_t shift,
     if (ndigits == 0) {
         return VIPER_SCPI_RES_ERR_DATA_TYPE;
     }
+    while (i < n && viper_scpi_is_space(s[i])) {
+        i++; /* IEEE 488.2 7.7.2.2: white space before and after the E */
+    }
     if (i < n) {
         bool eneg = false;
         size_t edigits = 0;
@@ -256,6 +259,9 @@ static viper_scpi_result_t parse_decimal(const char *s, size_t n, int32_t shift,
             return VIPER_SCPI_RES_ERR_DATA_TYPE;
         }
         i++;
+        while (i < n && viper_scpi_is_space(s[i])) {
+            i++;
+        }
         if (i < n && (s[i] == '+' || s[i] == '-')) {
             eneg = s[i] == '-';
             i++;
@@ -610,17 +616,28 @@ size_t viper_scpi_scan_number(const char *s, size_t n)
     if (digits == 0) {
         return 0;
     }
-    /* An exponent needs digits; otherwise the 'E' starts a unit (EX = exa). */
-    if (i < n && viper_scpi_upper(s[i]) == 'E') {
-        size_t j = i + 1;
-        if (j < n && (s[j] == '+' || s[j] == '-')) {
+    /* IEEE 488.2 7.7.2.2: [white space] E [white space] [sign] digits. An
+     * exponent needs digits; otherwise the 'E' starts a unit (EX = exa). */
+    {
+        size_t j = i;
+
+        while (j < n && viper_scpi_is_space(s[j])) {
             j++;
         }
-        if (j < n && s[j] >= '0' && s[j] <= '9') {
-            while (j < n && s[j] >= '0' && s[j] <= '9') {
+        if (j < n && viper_scpi_upper(s[j]) == 'E') {
+            j++;
+            while (j < n && viper_scpi_is_space(s[j])) {
                 j++;
             }
-            i = j;
+            if (j < n && (s[j] == '+' || s[j] == '-')) {
+                j++;
+            }
+            if (j < n && s[j] >= '0' && s[j] <= '9') {
+                while (j < n && s[j] >= '0' && s[j] <= '9') {
+                    j++;
+                }
+                i = j;
+            }
         }
     }
     return i;
@@ -634,7 +651,13 @@ static viper_scpi_result_t integer_value(const viper_scpi_integer_t *spec, const
     uint32_t mag = 0;
     viper_scpi_result_t res;
 
-    if (spec->units == NULL) {
+    size_t sign = (n > 0 && (s[0] == '+' || s[0] == '-')) ? 1u : 0u;
+    bool non_decimal = (n > 0 && s[0] == '#') ||
+                       (n > sign + 2u && s[sign] == '0' && viper_scpi_upper(s[sign + 1]) == 'X');
+
+    if (spec->units == NULL || non_decimal) {
+        /* #H/#Q/#B and 0x numbers give the count directly, units or not
+         * (they take no unit suffix). */
         res = parse_integer(s, n, -(int32_t)spec->exp10, &neg, &mag);
     } else {
         const viper_scpi_unit_t *unit;
@@ -669,7 +692,8 @@ viper_scpi_result_t viper_scpi_param_integer(const viper_scpi_context_t *ctx, si
     viper_scpi_result_t res;
     bool updown;
 
-    if (spec == NULL || out == NULL || spec->min > spec->max) {
+    if (spec == NULL || out == NULL || spec->min > spec->max ||
+        (spec->units != NULL && (spec->units->split == NULL || spec->units->list == NULL))) {
         return VIPER_SCPI_RES_ERR_PARAM_INVALID;
     }
     updown = (spec->flags & VIPER_SCPI_NUM_UPDOWN) != 0;

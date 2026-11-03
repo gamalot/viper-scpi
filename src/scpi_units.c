@@ -96,9 +96,12 @@ viper_scpi_result_t viper_scpi_unit_split(const viper_scpi_unit_t *units, const 
     if (i == n) {
         return VIPER_SCPI_RES_OK; /* a bare number */
     }
+    /* IEEE 488.2 7.7.3: suffix mnemonics, exponents and '/' or '.' between
+     * them ("V/S", "M2", "S-1"); the table decides what exists. */
     for (size_t k = i; k < n; k++) {
         char c = viper_scpi_upper(s[k]);
-        if (c < 'A' || c > 'Z') {
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '.' ||
+              c == '-')) {
             return VIPER_SCPI_RES_ERR_INVALID_SUFFIX;
         }
     }

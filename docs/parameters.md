@@ -51,10 +51,10 @@ runs.
 | Function | Accepts | Notes |
 | --- | --- | --- |
 | `viper_scpi_param_number` | a double per a const `viper_scpi_number_t` spec: range, default, units, `MIN`/`MAX`/`DEF`, optionally `UP`/`DOWN` | the general one; with units the result is in base units, scaled by an exact power of ten (`10US` equals `10E-6`) |
-| `viper_scpi_param_integer` | an integer per a const `viper_scpi_integer_t` spec: the same, with the result a count of 10^`exp10` base units (`1.5` or `1500 MV` give 1500 for mV) | no floating point; units with a scale other than 1 (`MIN`, `HOUR`) are refused |
+| `viper_scpi_param_integer` | an integer per a const `viper_scpi_integer_t` spec: the same, with the result a count of 10^`exp10` base units (`1.5` or `1500 MV` give 1500 for mV); `#H`/`#Q`/`#B`/`0x` numbers give the count directly, with or without a unit table | no floating point; units with a scale other than 1 (`MIN`, `HOUR`) are refused |
 | `viper_scpi_param_int32` | `42`, `-7`, `+3`, `1.5`, `3.2E1`, `0x1F`, `#HFF`, `#B1010`, `#Q17` | a decimal number is rounded half away from zero (`1.5` is 2, `-0.5` is -1), in integer arithmetic; sign only on decimal and `0x` |
 | `viper_scpi_param_uint32` | as above, 0..4294967295 | `-0` is accepted |
-| `viper_scpi_param_double` | `1.5`, `-.5`, `1E-3`, `2.5e+3`, `INF`, `NINF`, `NAN` | at least one digit; no hex |
+| `viper_scpi_param_double` | `1.5`, `-.5`, `1E-3`, `2.5e+3`, `1.5 E 3`, `INF`, `NINF`, `NAN` | at least one digit; no hex; any length (IEEE 488.2 7.7.2), rounded once to the nearest double (exactly up to 40 significant digits) |
 | `viper_scpi_param_bool` | `ON`, `OFF`, or a number | a number is rounded, non-zero is ON (SCPI-99 7.3) |
 | `viper_scpi_param_choice` | a keyword from your list, long or short form | value from the list |
 | `viper_scpi_param_string` | `"text"` or `'text'`, doubled quote as escape | copied, NUL-terminated; on an error `out` is left unchanged |
@@ -138,6 +138,9 @@ static const viper_scpi_unit_t pressure_list[] = {
 static const viper_scpi_unit_table_t pressure = VIPER_SCPI_UNIT_TABLE(pressure_list);
 static const viper_scpi_number_t gauge = { .min = 0.0, .max = 1e7, .units = &pressure };
 ```
+
+Unit names may contain digits, `/`, `.` and `-` besides letters (IEEE 488.2
+7.7.3: `V/S`, `M2`, `S-1`); a prefix works on them too (`KV/S`).
 
 Conversion is multiplicative only; a unit with an offset (degF) cannot be
 expressed.

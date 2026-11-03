@@ -33,14 +33,16 @@
 #endif
 
 /**
- * Significant digits of viper_scpi_result_double() (1..17). 15 is the most
- * that any decimal value survives text -> double -> text with, so a setting
- * such as VOLT 1.23456789012 reads back exactly as written, without the noise
- * digits 17 would add (0.1 -> 0.10000000000000001). Use 17 for a lossless
- * round trip of computed doubles, or viper_scpi_result_double_digits().
+ * Significant digits of viper_scpi_result_double() (1..17), or 0 for DBL_DIG
+ * of the platform: 15 where double is binary64, 6 where it is binary32
+ * (avr-gcc). That is the most that any decimal value survives text -> double
+ * -> text with, so a setting such as VOLT 1.23456789012 reads back exactly as
+ * written, without noise digits (0.1 -> 0.10000000000000001 with 17). Use 17
+ * for a lossless round trip of computed doubles (9 is the most that means
+ * anything for binary32), or viper_scpi_result_double_digits().
  */
 #ifndef VIPER_SCPI_DOUBLE_DIGITS
-#define VIPER_SCPI_DOUBLE_DIGITS 15
+#define VIPER_SCPI_DOUBLE_DIGITS 0
 #endif
 
 /** Number of entries in the SCPI error queue (must be 2..255). */
@@ -76,8 +78,8 @@
 #if VIPER_SCPI_MAX_SUFFIXES < 1 || VIPER_SCPI_MAX_SUFFIXES > 255
 #error "VIPER_SCPI_MAX_SUFFIXES must be 1..255"
 #endif
-#if VIPER_SCPI_DOUBLE_DIGITS < 1 || VIPER_SCPI_DOUBLE_DIGITS > 17
-#error "VIPER_SCPI_DOUBLE_DIGITS must be 1..17"
+#if VIPER_SCPI_DOUBLE_DIGITS < 0 || VIPER_SCPI_DOUBLE_DIGITS > 17
+#error "VIPER_SCPI_DOUBLE_DIGITS must be 0 (DBL_DIG) or 1..17"
 #endif
 #if VIPER_SCPI_ERROR_QUEUE_SIZE < 2 || VIPER_SCPI_ERROR_QUEUE_SIZE > 255
 #error "VIPER_SCPI_ERROR_QUEUE_SIZE must be 2..255"

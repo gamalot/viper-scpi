@@ -1,4 +1,6 @@
 /* Parameter extraction and response formatting. */
+#include <float.h>
+
 #include "test_util.h"
 
 static int err(void)
@@ -172,9 +174,42 @@ static void test_float_errors(void)
     fx_send("SOUR:VOLT 1e999");
     CHECK_INT(err(), -222);
     fx_send("SOUR:VOLT 1234567890123456789012345678901234567890123456789");
-    CHECK_INT(err(), -104);            /* longer than the conversion buffer */
+    CHECK_INT(err(), 0);               /* IEEE 488.2 7.7.2: long mantissas */
+    CHECK(g_volt > 1.2345678901234e48 && g_volt < 1.2345678901235e48);
     fx_send("SOUR:VOLT");
     CHECK_INT(err(), -109);
+}
+
+/* Long mantissas (leading and trailing zeros, many digits), white space
+ * around the exponent marker (IEEE 488.2 7.7.2), and exact rounding. */
+static void test_double_grammar(void)
+{
+    static const char *const same_as_1_5[] = {
+        "0000000000000000000000000000000000000000000000000000000001.5",
+        "1.500000000000000000000000000000000000000000000000000000000000",
+        "15E-1", "15 E-1", "15E -1", "15 e -1", "0.00000000000000000000000000000000000000015E40",
+    };
+
+    fx_setup();
+    for (size_t i = 0; i < sizeof same_as_1_5 / sizeof same_as_1_5[0]; i++) {
+        char line[96];
+        g_volt = 0;
+        (void)snprintf(line, sizeof line, "SOUR:VOLT %s", same_as_1_5[i]);
+        fx_send(line);
+        CHECK_INT(err(), 0);
+        CHECK(g_volt == 1.5);
+    }
+    /* Rounded once, to the nearest double. */
+    fx_send("SOUR:VOLT 1.0000000000000002");
+    CHECK(g_volt == 1.0 + DBL_EPSILON);
+    fx_send("SOUR:VOLT 1.00000000000000011102230246251565404");   /* below half */
+    CHECK(g_volt == 1.0);
+    fx_send("SOUR:VOLT 1.00000000000000011102230246251566");      /* above half */
+    CHECK(g_volt == 1.0 + DBL_EPSILON);
+    fx_send("SOUR:VOLT 1.5 E");                /* an exponent needs digits */
+    CHECK_INT(err(), -104);
+    fx_send("SOUR:VOLT 1.5 3");
+    CHECK_INT(err(), -104);
 }
 
 static void test_double_results(void)
@@ -585,6 +620,7 @@ int main(void)
     test_floats();
     test_float_errors();
     test_double_results();
+    test_double_grammar();
     test_nr3_format();
     test_special_values();
     test_booleans();

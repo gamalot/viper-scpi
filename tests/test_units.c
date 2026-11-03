@@ -142,8 +142,8 @@ static void test_number_errors(void)
     CHECK_INT(err(), -222);
     (void)set("FREQ", "1E300EXHZ");                /* overflows after scaling */
     CHECK_INT(err(), -222);
-    (void)set("FREQ", "1234567890123456789012345678901234567890123456789HZ");
-    CHECK_INT(err(), -104);
+    CHECK(set("FREQ", "000000000000000000000000000000000000000000000000001.5KHZ") == 1500.0);
+    CHECK_INT(err(), 0);
     fx_send("FREQ");
     CHECK_INT(err(), -109);
     CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
@@ -205,6 +205,94 @@ static void test_api_arguments(void)
     CHECK_NEAR(d, 1000.0);
     CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_hertz, 0.0, 10.0, 0.5, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
+}
+
+/* A multiplier prefix scales by an exact power of ten: the value is the same
+ * double as the number written with the exponent, also at a range limit. */
+static void test_prefix_is_exact(void)
+{
+    static const char *const vals[] = { "0.07", "2.1", "2.01", "0.3", "99.9", "1.1" };
+    char a[32], b[32];
+
+    fx_setup();
+    for (size_t i = 0; i < sizeof vals / sizeof vals[0]; i++) {
+        double with_prefix, with_exponent;
+        (void)snprintf(a, sizeof a, "%sMF", vals[i]);
+        (void)snprintf(b, sizeof b, "%sE-3F", vals[i]);
+        with_prefix = set("CAP", a);
+        with_exponent = set("CAP", b);
+        CHECK(with_prefix == with_exponent);
+        (void)snprintf(a, sizeof a, "%sKHZ", vals[i]);
+        (void)snprintf(b, sizeof b, "%sE3HZ", vals[i]);
+        with_prefix = set("FREQ", a);
+        with_exponent = set("FREQ", b);
+        CHECK(with_prefix == with_exponent);
+    }
+    CHECK(set("CAP", "0.07MF") == 7e-5);
+    CHECK(set("CAP", "1.5 E-3 MF") == 1.5e-6);   /* white space around E */
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+}
+
+/* #H/#Q/#B and 0x numbers give the count directly, with a unit table too. */
+static void test_integer_non_decimal_with_units(void)
+{
+    static const viper_scpi_integer_t mv = {
+        .min = -100000, .max = 100000, .units = &viper_scpi_units_volt, .exp10 = -3
+    };
+    int32_t v = 0;
+
+    fx_setup();
+    fx_send("PARAMS #H10,0x10,-0x10,#B101,#Q17,1.5 V");
+    CHECK_INT(viper_scpi_param_integer(&g_ctx, 0, &mv, &v, NULL), 0);
+    CHECK_INT(v, 16);
+    CHECK_INT(viper_scpi_param_integer(&g_ctx, 1, &mv, &v, NULL), 0);
+    CHECK_INT(v, 16);
+    CHECK_INT(viper_scpi_param_integer(&g_ctx, 2, &mv, &v, NULL), 0);
+    CHECK_INT(v, -16);
+    CHECK_INT(viper_scpi_param_integer(&g_ctx, 3, &mv, &v, NULL), 0);
+    CHECK_INT(v, 5);
+    CHECK_INT(viper_scpi_param_integer(&g_ctx, 4, &mv, &v, NULL), 0);
+    CHECK_INT(v, 15);
+    CHECK_INT(viper_scpi_param_integer(&g_ctx, 5, &mv, &v, NULL), 0);
+    CHECK_INT(v, 1500);
+}
+
+/* A unit table without its parser or its list is a programming error. */
+static void test_incomplete_unit_table(void)
+{
+    static const viper_scpi_unit_t list[] = { { "PA", 1.0, 0 }, { NULL, 0, 0 } };
+    static const viper_scpi_unit_table_t no_split = { NULL, list };
+    static const viper_scpi_unit_table_t no_list = VIPER_SCPI_UNIT_TABLE(NULL);
+    const viper_scpi_number_t a = { .max = 10.0, .units = &no_split };
+    const viper_scpi_integer_t b = { .max = 10, .units = &no_list };
+    double d;
+    int32_t i;
+
+    fx_setup();
+    fx_send("PARAMS 5 PA");
+    CHECK_INT(viper_scpi_param_number(&g_ctx, 0, &a, &d, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
+    CHECK_INT(viper_scpi_param_integer(&g_ctx, 0, &b, &i, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
+}
+
+/* Unit names may hold digits, '/', '.' and '-' (IEEE 488.2 7.7.3). */
+static void test_compound_unit_names(void)
+{
+    static const viper_scpi_unit_t list[] = {
+        { "V/S", 1.0, 0 }, { "M2", 1.0, 0 }, { NULL, 0, 0 }
+    };
+    static const viper_scpi_unit_table_t table = VIPER_SCPI_UNIT_TABLE(list);
+    double d = 0;
+
+    fx_setup();
+    fx_send("PARAMS 5 V/S,5 KV/S,3 M2,2 V/M");
+    CHECK_INT(num(&g_ctx, 0, &table, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
+    CHECK(d == 5.0);
+    CHECK_INT(num(&g_ctx, 1, &table, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
+    CHECK(d == 5000.0);
+    CHECK_INT(num(&g_ctx, 2, &table, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
+    CHECK(d == 3.0);
+    CHECK_INT(num(&g_ctx, 3, &table, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL),
+              VIPER_SCPI_RES_ERR_INVALID_SUFFIX);
 }
 
 /* A user-defined unit table with scale factors and flags. */
@@ -341,6 +429,10 @@ int main(void)
     test_unit_with_keywords();
     test_api_arguments();
     test_custom_unit_table();
+    test_prefix_is_exact();
+    test_compound_unit_names();
+    test_integer_non_decimal_with_units();
+    test_incomplete_unit_table();
     test_prefix_scaling_is_exact();
     test_spec_parsers();
     return test_summary("test_units");

@@ -445,7 +445,7 @@ A callback runs when its node is the last mnemonic of a command. Inside it:
   `VIPER_SCPI_RES_OK` or an SCPI error code (`-104` data type, `-109` missing
   parameter, `-222` out of range, `-224` illegal value, ...).
 - `viper_scpi_result_double()` writes NR2/NR3 with `VIPER_SCPI_DOUBLE_DIGITS`
-  (15) significant digits and an upper-case exponent (`1.5E-07`), as IEEE
+  significant digits (`DBL_DIG`: 15 where double is binary64) and an upper-case exponent (`1.5E-07`), as IEEE
   488.2 8.7.4 requires; `viper_scpi_result_double_digits()` picks the digits
   per call (e.g. 7 for a 6.5-digit meter). 15 digits return any value written
   with up to 15 digits unchanged; 17 round-trips every double.
@@ -530,7 +530,7 @@ Override any of these with `-D` on the compiler command line (see
 | `VIPER_SCPI_MAX_PARAMS` | 8 | Parameters per command |
 | `VIPER_SCPI_MAX_RECURSION_DEPTH` | 8 | Mnemonics per header |
 | `VIPER_SCPI_ERROR_QUEUE_SIZE` | 8 | Error queue entries |
-| `VIPER_SCPI_DOUBLE_DIGITS` | 15 | Significant digits of double responses |
+| `VIPER_SCPI_DOUBLE_DIGITS` | 0 (`DBL_DIG`, 15 for binary64) | Significant digits of double responses |
 | `VIPER_SCPI_MAX_SUFFIXES` | 4 | Numeric suffixes recorded per header |
 
 ## Versions

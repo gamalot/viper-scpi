@@ -38,6 +38,33 @@ The remaining findings of the second full code review.
   a CI step builds the tests that way.
 - `VIPER_SCPI_MAX_RECURSION_DEPTH` 1 or 2 made the built-in `SYSTem:ERRor`
   and `STATus` commands unreachable; the minimum is 3 now (compile error).
+- `viper_scpi_param_integer()` with a unit table refused `#H`/`#Q`/`#B`/`0x`
+  numbers (-104, -131); they give the count directly as without one.
+- A multiplier prefix was applied after `strtod()`, a second rounding:
+  `0.07MF` was not the same double as `7E-5` and failed a limit of `7e-5`.
+  The prefix now goes into the exponent before the one conversion, as the
+  documentation always claimed.
+- The double parsers refused numbers of 48 characters or more (-104), even
+  `0000...1.5`; any length is accepted now (IEEE 488.2 7.7.2), rounded
+  exactly up to 40 significant digits.
+- White space around the exponent marker (`1.5 E3`, `1.5E -3`, IEEE 488.2
+  7.7.2.2) was refused.
+- Unit names with digits, `/`, `.` or `-` (`V/S`, `M2`) could never match;
+  IEEE 488.2 7.7.3 suffixes are accepted now.
+- A unit table without its parser or list (`{ .list = l }`) crashed on the
+  first parameter; the parsers return -220 for it.
+- `scpi_float.c` did not build with avr-libc (no `localeconv()`, no
+  `HUGE_VAL`): parsing no longer depends on the locale's radix character, and
+  INF comes from `INFINITY`.
+- Where double is binary32 (avr-gcc), responses printed 15 digits of binary32
+  noise (`0.1` read back as `0.100000001490116`). `VIPER_SCPI_DOUBLE_DIGITS`
+  defaults to 0, which means `DBL_DIG` (15 for binary64 as before, 6 for
+  binary32), and `viper_scpi_result_double_digits()` stops at 9 there.
+- INF and NAN are recognised from their bit patterns, so `-ffast-math`
+  builds answer `9.91E+37` and -224 instead of garbage; a C library without
+  floating-point `printf` gives -200 instead of an empty or `.` response.
+- A locale whose radix character is several bytes (ps_AF) made responses
+  read `1..5` and parameters fail; responses now collapse it to one `.`.
 
 ## [0.5.1] - 2026-11-03
 

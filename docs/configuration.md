@@ -51,7 +51,7 @@ library's.
 | `VIPER_SCPI_MAX_RECURSION_DEPTH` | 8 | mnemonics per header, including the inherited path (3..255: the built-in `SYSTem:ERRor:NEXT?` and `STATus:OPERation:ENABle` have 3) |
 | `VIPER_SCPI_MAX_SUFFIXES` | 4 | numeric suffixes recorded per command, 1..255 (later ones read as the default) |
 | `VIPER_SCPI_ERROR_QUEUE_SIZE` | 8 | error queue entries (2..255) |
-| `VIPER_SCPI_DOUBLE_DIGITS` | 15 | significant digits of `viper_scpi_result_double()` (1..17) |
+| `VIPER_SCPI_DOUBLE_DIGITS` | 0 | significant digits of `viper_scpi_result_double()`: 1..17, or 0 for `DBL_DIG` of the platform (15 where double is binary64, 6 where it is binary32 as with avr-gcc) |
 | `VIPER_SCPI_DEFAULT_MANUFACTURER` etc. | `VIPER`, `SCPI`, `0`, `0.1.0` | `*IDN?` fields when the configuration leaves them NULL |
 
 ## Memory
@@ -108,7 +108,11 @@ Both hold provided the library is linked as a static archive or with
 unused-section removal (GNU `--gc-sections`, TI's default); the CI link test
 checks them. If you need doubles,
 newlib-nano with float printf support or a vendor C library is usually much
-smaller than full newlib.
+smaller than full newlib. The C library must format `%G`: without that
+(newlib-nano without `-u _printf_float`, avr-libc's default `vfprintf`) a
+double response reads `9.91E+37` and queues -200 "printf has no
+floating-point support". `-ffast-math` is fine: INF and NAN are recognised
+from their bit patterns.
 
 ## Calling rules
 
