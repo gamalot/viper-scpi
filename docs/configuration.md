@@ -87,10 +87,17 @@ Measured with arm-none-eabi-gcc 13.2, `-Os`, Cortex-M0+, newlib, `--gc-sections`
 
 | Program | Text |
 | --- | --- |
-| all library objects together | 13.1 KB |
-| a program using `viper_scpi_param_integer()` without units, integer responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 10.4 KB in total, startup code included |
-| the same program also taking `VOLT 1500 MV` into millivolts with a unit table | 11.1 KB |
+| all library objects together | 13.0 KB |
+| a program using `viper_scpi_param_integer()` without units, integer responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 10.3 KB in total, startup code included |
+| the same program also taking `VOLT 1500 MV` into millivolts with a unit table | 11.0 KB |
 | the same program also using one double parser and `viper_scpi_result_double()` | 53 KB |
+
+The optimisation level changes these far more than any library release: with
+clang 18 for Cortex-M0+, the library objects take 24.1 KB at `-O2` and
+16.5 KB at `-Os`, and at `-Os` a typical command still takes well under a
+millisecond on a 32 MHz Cortex-M0+ (about 5 000 to 14 000 cycles). When flash
+is tight, build the library with `-Os` even if the rest of the firmware uses
+`-O2`; after `add_subdirectory()`, `target_compile_options(viper_scpi PRIVATE -Os)`.
 
 Which files a program links depends on what it names:
 

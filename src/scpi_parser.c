@@ -122,8 +122,9 @@ void viper_scpi_output_discard(viper_scpi_context_t *ctx)
 /*
  * The separator that precedes a response value -- ',' within a command's
  * response, ';' between commands, nothing first -- stored at @p *dst (one
- * byte at most). Returns its length. Callers write it together with the
- * value, so that a stream transport gets one write() per value.
+ * byte at most). Returns its length. A number is written together with its
+ * separator, from the buffer it is formatted in; a text value is not copied
+ * for that (the copy costs more code than the write() it saves).
  */
 static size_t result_sep(viper_scpi_context_t *ctx, char *dst)
 {
@@ -152,17 +153,10 @@ static char *with_sep(viper_scpi_context_t *ctx, char *p)
 
 void viper_scpi_result_text(viper_scpi_context_t *ctx, const char *str)
 {
-    char buf[24]; /* separator and a short value (an *IDN? field) in one write */
-    size_t len = strlen(str);
-    size_t n = result_sep(ctx, buf);
+    char sep = '\0';
 
-    if (n + len < sizeof buf) {
-        memcpy(buf + n, str, len + 1u); /* with its NUL, as a string */
-        emit(ctx, buf, n + len);
-        return;
-    }
-    emit(ctx, buf, n);
-    emit(ctx, str, len);
+    emit(ctx, &sep, result_sep(ctx, &sep));
+    emit(ctx, str, strlen(str));
 }
 
 /* v / 10 and v % 10 with shifts and adds: Cortex-M0 has no divide
@@ -634,26 +628,12 @@ static const viper_scpi_node_t *resolve(viper_scpi_context_t *ctx,
                                         const viper_scpi_node_t *list,
                                         const segment_t *segs, size_t nseg, unsigned depth)
 {
-    char first;
-
     if (list == NULL || depth > MAX_TREE_DEPTH) {
         return NULL;
     }
-    first = (nseg > 0) ? viper_scpi_upper(segs[0].str[0]) : '\0';
     for (const viper_scpi_node_t *n = list; n->pattern != NULL; n++) {
-        const viper_scpi_node_t *hit;
-        const char *q = n->pattern;
-
-        /* The quick reject of match_items() for the first mnemonic, before
-         * the call: every command walks the siblings of each level (and the
-         * built-in commands the whole user tree), and most fail here. */
-        while (*q == ':') {
-            q++;
-        }
-        if (first != '\0' && *q != '\0' && *q != '[' && viper_scpi_upper(*q) != first) {
-            continue;
-        }
-        hit = match_items(ctx, n, n->pattern, segs, nseg, depth);
+        const viper_scpi_node_t *hit =
+            match_items(ctx, n, n->pattern, segs, nseg, depth);
         if (hit != NULL) {
             return hit;
         }

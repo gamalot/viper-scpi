@@ -6,6 +6,24 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Changed
+
+Two optimisations of 0.6.1 are taken back: in the one firmware using the
+library (TI Arm Clang, `-O2`, message-exchange model) they cost flash and
+saved no time anyone could see, since a query's time is the USB round trip.
+The division-free integer code stays: it is no larger than division.
+
+- A text response value is written after its separator again instead of
+  being copied next to it, which only saved a `write()` call on the stream
+  model (`*IDN?` makes 8 calls again).
+- Header resolution no longer checks a sibling's first letter before calling
+  the matcher (`SYST:ERR?` with a 21-node user tree: 8946 -> 10783 cycles
+  on Cortex-M0+, still below 0.6.0's 11174).
+- Together about 320 B less code with clang `-O2` for Cortex-M0+, 70 B
+  above 0.6.0. The configuration guide now shows that the optimisation
+  level matters far more: the library is 24.1 KB at `-O2` and 16.5 KB at
+  `-Os` (clang 18).
+
 ## [0.6.1] - 2026-11-03
 
 The efficiency and structure findings of the second full code review. No
