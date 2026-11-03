@@ -6,6 +6,10 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-03
+
+No API or behaviour change: upgrading from 0.6.1 needs no source change.
+
 ### Changed
 
 Two optimisations of 0.6.1 are taken back: in the one firmware using the
@@ -482,7 +486,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/gamalot/viper-scpi/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/gamalot/viper-scpi/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gamalot/viper-scpi/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/gamalot/viper-scpi/compare/v0.5.0...v0.5.1
