@@ -141,3 +141,5 @@ is not readable yet). Once no operation is pending, `viper_scpi_poll()` calls
 the callback again with the same parameters and suffixes and
 `viper_scpi_resumed()` true; that call writes the result, and the rest of the
 message runs. `viper_scpi_device_clear()` cancels it like any suspension.
+Only a command callback can defer: in a stream handler (see
+[Receiving: streaming block input](large-data.md#receiving-streaming-block-input)) `viper_scpi_defer()` does nothing.
