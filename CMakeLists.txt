@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(viper_scpi VERSION 0.6.2 LANGUAGES C)
+project(viper_scpi VERSION 0.6.3 LANGUAGES C)
 
 # Keep the header's version macros in step with the project version.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/viper_scpi/viper_scpi.h" _viper_ver

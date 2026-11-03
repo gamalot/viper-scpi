@@ -6,6 +6,12 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-03
+
+No source change is needed to upgrade from 0.6.2. One result changes: if a
+node pattern in the configuration is malformed, `viper_scpi_init()` now
+returns `-102` instead of `0`, with the context initialised as before.
+
 ### Changed
 
 - `viper_scpi_init()` checks the patterns of `cfg.root` (with all children)
@@ -499,7 +505,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/gamalot/viper-scpi/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/gamalot/viper-scpi/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/gamalot/viper-scpi/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gamalot/viper-scpi/compare/v0.5.1...v0.6.0
