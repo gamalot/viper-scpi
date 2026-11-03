@@ -62,6 +62,10 @@ viper_scpi_numeric_kw_t viper_scpi_numeric_keyword(const viper_scpi_context_t *c
 viper_scpi_result_t viper_scpi_param_register(const viper_scpi_context_t *ctx, int32_t max,
                                               int32_t *out);
 
+/** What is executing (ctx->running): units of a message, run by run_line()
+ *  or viper_scpi_poll(), or a stream handler. */
+enum { VIPER_SCPI_RUN_NONE = 0, VIPER_SCPI_RUN_UNITS, VIPER_SCPI_RUN_STREAM };
+
 /** Why message execution is suspended (ctx->wait). */
 enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ, VIPER_SCPI_WAIT_DEFER };
 

@@ -6,6 +6,40 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Fixed
+
+The six most serious findings of a second full code review.
+
+- With `VIPER_SCPI_OPT_EOM_MESSAGES`, an LF right after a streamed block (or
+  after the rest of a unit whose handler failed) did not start the next line
+  at the root: `MMEM:DATA #13abc<LF>VOLT?` ran `MMEM:VOLT?`. The LF is now
+  kept like any other separating LF. (A regression in 0.3.0.)
+- White space after a streamed block did not count as a parameter boundary,
+  so a block after it was not framed as a block and its bytes could run as
+  commands (`MMEM:DATA #13abc #19;*RST` ran `*RST`).
+- A stream handler that calls `viper_scpi_device_clear()` -- for example
+  from a USB stack it services while it waits -- left the library feeding
+  the rest of the block to the command parser. Now the rest of the block
+  and of the message is dropped, without an ABORT to that handler and
+  without an error.
+- With `VIPER_SCPI_BUFFER_SIZE` 65535, a message filling the buffer whose
+  last command suspended (`*WAI`, `*OPC?`, `viper_scpi_defer()`) ran again
+  from its start on every resume, endlessly with `*OPC?`. (A regression in
+  0.4.0, from the 16-bit resume offset.)
+- Message-exchange model: the NL of the NL^END that ends a message became
+  the last byte of an indefinite `#0` block (IEEE 488.2 7.7.6.2). LFs
+  earlier in the block are still data. (A regression in 0.3.0.)
+- A message refused while another one was suspended still ended that
+  message's reply with -410 when the refused message finished after the
+  suspension did, so whether the host got its `*OPC?` answer depended on
+  when the firmware called `viper_scpi_poll()`. A refused message never
+  interrupts a reply now; it is reported as -363 as before.
+
+### Changed
+
+- `tests/test_bigbuf` builds the library with `VIPER_SCPI_BUFFER_SIZE` 65535
+  and runs the overlapped commands at that limit.
+
 ## [0.5.0] - 2026-11-03
 
 Both items of section 6 of `docs/IMPROVEMENTS.md`, found while moving the

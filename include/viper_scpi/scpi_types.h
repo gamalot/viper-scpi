@@ -228,7 +228,9 @@ typedef enum {
  * buffer (MMEM:DATA, TRAC:DATA). A non-zero return from BEGIN, DATA or END is
  * pushed to the error queue (unless viper_scpi_fail() queued it); after one
  * from BEGIN or DATA the rest of the block is skipped and the handler is not
- * called again for it. ABORT's return value is ignored.
+ * called again for it. ABORT's return value is ignored. A handler may call
+ * viper_scpi_device_clear(): it gets no ABORT for that, and the rest of the
+ * block and of the message is dropped.
  */
 typedef viper_scpi_result_t (*viper_scpi_block_stream_t)(viper_scpi_context_t *ctx,
                                                          viper_scpi_stream_event_t event,
@@ -341,7 +343,7 @@ struct viper_scpi_context_s {
     viper_scpi_result_t failed; /**< Code viper_scpi_fail() queued during the
                                      running callback, not to be queued again */
     uint8_t wait;          /**< WAIT_* : why execution is suspended */
-    uint8_t overflow;      /**< The message is dropped (overrun, refused) */
+    uint8_t drop;          /**< Why the message is dropped (DROP_*), or 0 */
     uint8_t skip_unit;     /**< Rest of the unit is lexed but not kept */
     uint8_t block_state;
     char quote;
@@ -349,7 +351,7 @@ struct viper_scpi_context_s {
     uint8_t block_digits;
     uint8_t msg_started;   /**< A message is executing (or streaming, or
                                 suspended); its response is not complete */
-    uint8_t running;       /**< Inside run_line(): units are executing */
+    uint8_t running;       /**< RUN_*: units, or a stream handler, are executing */
     uint8_t resumed;       /**< The callback is re-run after a defer */
     uint8_t is_query;
     uint8_t param_count;

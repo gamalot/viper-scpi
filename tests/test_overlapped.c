@@ -316,16 +316,26 @@ static void test_input_until_busy(void)
     CHECK_INT(viper_scpi_error_count(&q), 0);
 
     /* The same chunk through input_buffer(): the rest is refused whole,
-     * even though the operation completes before its end arrives. Like any
-     * new message, it also ends the unread reply (-410). */
+     * even though the operation completes before its end arrives. A refused
+     * message is not executed, so it does not interrupt the reply either:
+     * the *OPC? answer stays readable, as when the refused message ends
+     * while the first one is still suspended. */
     setup();
     viper_scpi_input_buffer(&q, "STAR;*OPC?\nCOUN ", 16);
     viper_scpi_op_end(&q);
     viper_scpi_poll(&q);
     viper_scpi_input_buffer(&q, "5\n", 2);
     CHECK_INT(s_count_calls, 0);
-    CHECK_INT(viper_scpi_error_pop(&q), -410);
     CHECK_INT(viper_scpi_error_pop(&q), -363);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_STR(reply(), "1\n");
+
+    setup();
+    viper_scpi_input_buffer(&q, "STAR;*OPC?\nCOUN 5\n", 18);
+    viper_scpi_op_end(&q);
+    viper_scpi_poll(&q);
+    CHECK_INT(viper_scpi_error_pop(&q), -363);
+    CHECK_STR(reply(), "1\n");
 }
 
 /* The partial reply of a suspended message neither raises MAV nor a service

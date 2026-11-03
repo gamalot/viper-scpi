@@ -12,7 +12,9 @@ static uint32_t s_declared, s_received;
 static int s_bad_bytes;
 static char s_name[16];
 static size_t s_params_at_begin;
-static int s_fail_at;          /* 1: fail BEGIN, 2: fail at first DATA */
+static int s_fail_at;          /* 1: fail BEGIN, 2: fail at first DATA, 3: fail
+                                  with detail, 4/5/6: device clear in DATA /
+                                  BEGIN / END */
 static int s_plain_calls;      /* the node's own callback */
 
 static uint8_t pattern_byte(uint32_t i)
@@ -33,6 +35,9 @@ static viper_scpi_result_t up_stream(viper_scpi_context_t *ctx, viper_scpi_strea
         if (s_params_at_begin > 0) {
             (void)viper_scpi_param_string(ctx, 0, s_name, sizeof s_name, NULL);
         }
+        if (s_fail_at == 5) {
+            viper_scpi_device_clear(ctx);
+        }
         return s_fail_at == 1 ? VIPER_SCPI_RES_ERR_EXECUTION : VIPER_SCPI_RES_OK;
     case VIPER_SCPI_STREAM_DATA:
         s_data_calls++;
@@ -41,6 +46,10 @@ static viper_scpi_result_t up_stream(viper_scpi_context_t *ctx, viper_scpi_strea
         }
         if (s_fail_at == 3) {
             return viper_scpi_fail(ctx, -257, "flash full");
+        }
+        if (s_fail_at == 4) {
+            viper_scpi_device_clear(ctx);  /* e.g. from a USB stack it services */
+            return VIPER_SCPI_RES_OK;
         }
         for (size_t i = 0; i < len; i++) {
             if (data[i] != pattern_byte(s_received + (uint32_t)i)) {
@@ -52,6 +61,9 @@ static viper_scpi_result_t up_stream(viper_scpi_context_t *ctx, viper_scpi_strea
     case VIPER_SCPI_STREAM_END:
         s_end++;
         viper_scpi_result_uint(ctx, s_received);   /* responses are allowed */
+        if (s_fail_at == 6) {
+            viper_scpi_device_clear(ctx);
+        }
         return VIPER_SCPI_RES_OK;
     default:
         s_abort++;
@@ -97,6 +109,24 @@ static const viper_scpi_config_t cfg = {
     .output_size = sizeof s_out,
     .stream_nodes = streams,
 };
+
+static const viper_scpi_config_t cfg_eom = {
+    .root = root,
+    .output_buffer = s_out,
+    .output_size = sizeof s_out,
+    .stream_nodes = streams,
+    .options = VIPER_SCPI_OPT_EOM_MESSAGES,
+};
+
+static void setup_with(const viper_scpi_config_t *c)
+{
+    s_begin = s_end = s_abort = s_data_calls = 0;
+    s_declared = s_received = 0;
+    s_bad_bytes = 0;
+    s_fail_at = 0;
+    s_plain_calls = 0;
+    (void)viper_scpi_init(&q, c);
+}
 
 static void setup(void)
 {
@@ -377,6 +407,87 @@ static void test_handler_fail_with_detail(void)
     CHECK_STR(reply(), "1\n");
 }
 
+/* With VIPER_SCPI_OPT_EOM_MESSAGES an LF after a streamed block separates
+ * lines like any LF: the next line starts at the root, also after a unit
+ * whose handler failed. */
+static void test_eom_lf_after_stream_resets_path(void)
+{
+    static const char msg[] = "MMEM:UPL #13abc\nSTOR #11x\nUPL";
+
+    setup_with(&cfg_eom);
+    viper_scpi_input_buffer(&q, msg, sizeof msg - 1);
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_end, 1);
+    CHECK_INT(viper_scpi_error_pop(&q), -113);   /* UPL at the root, not MMEM:UPL */
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+    CHECK_INT(s_plain_calls, 0);
+    CHECK_STR(reply(), "3\n");
+
+    setup_with(&cfg_eom);
+    s_fail_at = 2;
+    viper_scpi_input_buffer(&q, msg, sizeof msg - 1);
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(viper_scpi_error_pop(&q), VIPER_SCPI_RES_ERR_OUT_OF_MEMORY); /* DATA */
+    CHECK_INT(viper_scpi_error_pop(&q), -113);
+    CHECK_INT(s_plain_calls, 0);
+
+    /* ';' keeps the path (SCPI-99 6.2.4). */
+    setup_with(&cfg_eom);
+    viper_scpi_input_buffer(&q, "MMEM:UPL #13abc;UPL", 19);
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(s_plain_calls, 1);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
+/* White space after a streamed block is a parameter boundary like anywhere
+ * else: a block after it is lexed as a block, so its bytes never run. */
+static void test_block_after_streamed_block_is_lexed(void)
+{
+    setup();
+    viper_scpi_input_buffer(&q, "MMEM:UPL #13abc #19;MMEM:UPL\n", 29);
+    CHECK_INT(s_abort, 1);
+    CHECK_INT(s_plain_calls, 0);
+    CHECK_INT(viper_scpi_error_pop(&q), -108);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
+/* A handler that clears the device (e.g. from a USB stack it services while
+ * it waits) ends the message: the rest of the block and of the message is
+ * dropped, never executed, without an ABORT to the handler or an error. */
+static void test_device_clear_from_handler(void)
+{
+    static const char msg[] = "MMEM:UPL #221ab;MMEM:UPL;:MMEM:UPL;MMEM:UPL\n";
+    static const int modes[] = { 4, 5, 6 };
+
+    for (size_t m = 0; m < sizeof modes / sizeof modes[0]; m++) {
+        setup();
+        s_fail_at = modes[m];
+        viper_scpi_input_buffer(&q, msg, sizeof msg - 1);
+        CHECK_INT(s_plain_calls, 0);
+        CHECK_INT(s_abort, 0);
+        CHECK_INT(viper_scpi_error_count(&q), 0);
+        CHECK_STR(reply(), "");
+        viper_scpi_input_buffer(&q, "*OPC?\n", 6);   /* the next message works */
+        CHECK_STR(reply(), "1\n");
+        CHECK_INT(viper_scpi_error_count(&q), 0);
+    }
+
+    /* Cleared in END: the units after the streamed one do not run. */
+    setup();
+    s_fail_at = 6;
+    viper_scpi_input_buffer(&q, "MMEM:UPL #13abc;UPL;UPL\n", 24);
+    CHECK_INT(s_end, 1);
+    CHECK_INT(s_plain_calls, 0);
+    CHECK_STR(reply(), "");
+
+    /* The message-exchange end (EOM) inside the dropped block: no -161. */
+    setup();
+    s_fail_at = 5;
+    viper_scpi_input_buffer(&q, "MMEM:UPL #15ab", 14);
+    viper_scpi_end_of_message(&q);
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
 int main(void)
 {
     test_large_upload();
@@ -392,5 +503,8 @@ int main(void)
     test_path_after_streamed_unit();
     test_reply_terminated_when_rest_dropped();
     test_handler_fail_with_detail();
+    test_eom_lf_after_stream_resets_path();
+    test_block_after_streamed_block_is_lexed();
+    test_device_clear_from_handler();
     return test_summary("test_stream");
 }

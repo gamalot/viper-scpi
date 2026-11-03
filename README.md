@@ -199,7 +199,7 @@ operation is pending. Meanwhile:
   controller off (USBTMC NAKs bulk-OUT, a UART deasserts RTS or buffers).
   Bytes fed anyway are refused: the message they belong to is dropped whole
   (also if the suspension ends before its last byte arrives) and reported as
-  `-363` at its end. `viper_scpi_input_buffer()` refuses the rest of its data
+  `-363` at its end; the suspended message's reply stays readable. `viper_scpi_input_buffer()` refuses the rest of its data
   once a message in it suspends; `viper_scpi_input_until_busy()` stops right
   there instead and returns how many bytes it consumed, for a transport that
   can keep the rest (pipelined commands in one TCP segment).

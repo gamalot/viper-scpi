@@ -55,6 +55,19 @@ static viper_scpi_result_t cb_str(viper_scpi_context_t *ctx)
     return viper_scpi_param_string(ctx, 0, s_str, sizeof s_str, NULL);
 }
 
+/* BLKLen? <block>: the length of the block parameter. */
+static viper_scpi_result_t cb_blklen(viper_scpi_context_t *ctx)
+{
+    const uint8_t *d;
+    size_t n;
+    viper_scpi_result_t res = viper_scpi_param_block(ctx, 0, &d, &n);
+
+    if (res == VIPER_SCPI_RES_OK) {
+        viper_scpi_result_uint(ctx, (uint32_t)n);
+    }
+    return res;
+}
+
 static void on_trigger(viper_scpi_context_t *ctx)
 {
     (void)ctx;
@@ -66,6 +79,7 @@ static const viper_scpi_node_t q_root[] = {
     { "TWO", cb_two, NULL },
     { "BIG", cb_big, NULL },
     { "STR", cb_str, NULL },
+    { "BLKLen", cb_blklen, NULL },
     VIPER_SCPI_NODE_END
 };
 
@@ -603,6 +617,29 @@ static void test_indefinite_block_keeps_lf(void)
     CHECK_STR(buf, "");
 }
 
+/* IEEE 488.2 7.7.6.2: an indefinite block ends at NL^END; that NL
+ * terminates the message and is not block data. LFs before it are. */
+static void test_indefinite_block_ends_at_nl_end(void)
+{
+    char buf[64];
+    int reads;
+
+    q_setup();
+    q_send("BLKL? #0abc\n");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "3\n");
+    q_send("BLKL? #0a\nb\n");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "3\n");
+    q_send("BLKL? #0abc");                      /* END on the last data byte */
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "3\n");
+    q_send("BLKL? #0\n");
+    q_read_all(buf, sizeof buf, 64, &reads);
+    CHECK_STR(buf, "0\n");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+}
+
 int main(void)
 {
     test_queued_reply();
@@ -625,5 +662,6 @@ int main(void)
     test_lone_hash_at_eom();
     test_blank_line_keeps_reply();
     test_indefinite_block_keeps_lf();
+    test_indefinite_block_ends_at_nl_end();
     return test_summary("test_message");
 }

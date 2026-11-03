@@ -100,6 +100,7 @@ Rules:
 | Anywhere else, an indefinite `#0` block, or a node not in the table | the ordinary line buffer (too large: -363) |
 | Message ends before the declared length | ABORT, then -161 |
 | `viper_scpi_device_clear()` or `viper_scpi_input_discard()` mid-block | ABORT, no error |
+| The handler itself calls `viper_scpi_device_clear()` (e.g. from a USB stack it services while it waits) | no ABORT, no error; the rest of the block and of the message is dropped, never executed |
 | A parameter after the block (`#14abcd,5`) | ABORT, -108, the rest of that command skipped (a `;` in a string or block there does not end it) |
 | BEGIN or DATA returns an error | queued; the rest of the block is skipped without further calls |
 | Commands after the streamed one (`MMEM:DATA ...;*OPC?`) | run normally, with the streamed command's path for relative headers |
