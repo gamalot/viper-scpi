@@ -6,9 +6,20 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
-### Fixed
+## [0.6.0] - 2026-11-03
 
-The remaining findings of the second full code review.
+The remaining 20 findings of the second full code review, mostly where the
+library departed from IEEE 488.2 / SCPI-99. No source change is needed to
+upgrade from 0.5; four behaviours change, marked **Behaviour change** or
+listed here:
+
+- A query after `*IDN?` in the same message is -440 and not answered.
+- Pushing -500, -600, -700 or -800 sets PON, URQ, RQC or OPC in the ESR.
+- `VIPER_SCPI_MAX_RECURSION_DEPTH` below 3 is a compile error.
+- `VIPER_SCPI_DOUBLE_DIGITS` defaults to `DBL_DIG` (still 15 where double
+  is binary64; 6 where it is binary32).
+
+### Fixed
 
 - A query after `*IDN?` in the same message is now -440 (Query
   UNTERMINATED after indefinite response, IEEE 488.2 6.5.7.5.7) and is not
@@ -426,7 +437,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/gamalot/viper-scpi/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/gamalot/viper-scpi/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/gamalot/viper-scpi/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gamalot/viper-scpi/compare/v0.3.0...v0.4.0
