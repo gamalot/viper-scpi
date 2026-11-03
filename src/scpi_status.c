@@ -67,9 +67,13 @@ static viper_scpi_result_t status_access(viper_scpi_context_t *ctx, unsigned reg
     }
     if (viper_scpi_is_query(ctx)) {
         if (field == FIELD_EVENT) {
-            viper_scpi_result_int(ctx, set->event);
-            set->event = 0; /* reading the event register clears it */
-            viper_scpi_srq_update(ctx);
+            uint16_t event = set->event;
+
+            viper_scpi_result_int(ctx, event);
+            if (viper_scpi_reply_ok(ctx)) {
+                set->event = (uint16_t)(set->event & ~event); /* read clears it */
+                viper_scpi_srq_update(ctx);
+            }
         } else if (field == FIELD_CONDITION) {
             viper_scpi_result_int(ctx, set->condition);
         } else if (target != NULL) {

@@ -88,6 +88,18 @@ jobs:
             done
           done
           rm -f *.o cxx_check
+      - name: Limits given as expressions
+        run: |
+          # scpi_config.h accepts expressions; every use must parenthesise them.
+          D="-DVIPER_SCPI_ERROR_QUEUE_SIZE=10-2 -DVIPER_SCPI_MAX_RECURSION_DEPTH=4+4 \
+             -DVIPER_SCPI_BUFFER_SIZE=2*64 -DVIPER_SCPI_MAX_PARAMS=4+4 \
+             -DVIPER_SCPI_MAX_SUFFIXES=2+2 -DVIPER_SCPI_DOUBLE_DIGITS=10+5"
+          for t in test_error test_parser test_ieee488; do
+            gcc -std=c99 -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=all \
+                $D -Iinclude -Isrc -Itests src/*.c tests/test_fixture.c tests/$t.c -o expr_test
+            ./expr_test
+          done
+          rm -f expr_test
       - name: Check for dynamic allocation
         run: |
           gcc -std=c99 -Os -Iinclude -Isrc -c src/*.c

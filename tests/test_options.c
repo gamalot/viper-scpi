@@ -104,6 +104,41 @@ static void test_relative_fallback(void)
     CHECK_INT(viper_scpi_error_count(&q), 0);
 }
 
+/* The inherited path counts toward VIPER_SCPI_MAX_RECURSION_DEPTH; with the
+ * fallback a relative header that only fits from the root is still found. */
+static viper_scpi_result_t cb_ok(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_text(ctx, "OK");
+    return VIPER_SCPI_RES_OK;
+}
+
+static void test_fallback_past_depth(void)
+{
+    static const viper_scpi_node_t y_nodes[] = { { "Z", cb_ok, NULL }, VIPER_SCPI_NODE_END };
+    static const viper_scpi_node_t deep_root[] = {
+        { "A:B:C:D:E:F:G:H", cb_ok, NULL },  /* 8 mnemonics: a 7-deep path */
+        { "Y", NULL, y_nodes },
+        VIPER_SCPI_NODE_END
+    };
+    static const viper_scpi_config_t cfg_deep_rel = {
+        .root = deep_root, .output_buffer = s_buf, .output_size = sizeof s_buf,
+        .options = VIPER_SCPI_OPT_RELATIVE_FALLBACK,
+    };
+    static const viper_scpi_config_t cfg_deep = {
+        .root = deep_root, .output_buffer = s_buf, .output_size = sizeof s_buf,
+    };
+
+    setup(&cfg_deep_rel);
+    send("A:B:C:D:E:F:G:H?;Y:Z?");
+    CHECK_STR(reply(), "OK;OK\n");
+    CHECK_INT(viper_scpi_error_count(&q), 0);
+
+    setup(&cfg_deep);                     /* standard: A:...:G:Y:Z is too deep */
+    send("A:B:C:D:E:F:G:H?;Y:Z?");
+    CHECK_STR(reply(), "OK\n");
+    CHECK_INT(viper_scpi_error_pop(&q), -112);
+}
+
 static void test_eom_messages(void)
 {
     /* Off (standard): each LF ends a program message; the second query
@@ -161,6 +196,7 @@ static void test_lone_hash_with_eom_messages(void)
 int main(void)
 {
     test_relative_fallback();
+    test_fallback_past_depth();
     test_eom_messages();
     test_lone_hash_with_eom_messages();
     return test_summary("test_options");

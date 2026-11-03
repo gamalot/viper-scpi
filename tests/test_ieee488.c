@@ -109,7 +109,16 @@ static void test_esr_reflects_error_class(void)
     CHECK_STR(fx_out(), "12\n");
     fx_clear();
 
-    viper_scpi_error_push(&g_ctx, -500);   /* no ESR bit */
+    /* SCPI-99 21.8: the event classes set their ESR bits too. */
+    fx_send("*CLS");                       /* room in the queue: no -350 */
+    viper_scpi_error_push(&g_ctx, -500);   /* power on: PON */
+    viper_scpi_error_push(&g_ctx, -600);   /* user request: URQ */
+    viper_scpi_error_push(&g_ctx, -700);   /* request control: RQC */
+    viper_scpi_error_push(&g_ctx, -800);   /* operation complete: OPC */
+    fx_send("*ESR?");
+    CHECK_STR(fx_out(), "195\n");
+    fx_clear();
+    viper_scpi_error_push(&g_ctx, -900);   /* no ESR bit */
     fx_send("*ESR?");
     CHECK_STR(fx_out(), "0\n");
 }
@@ -216,8 +225,30 @@ static void test_malformed_common_commands(void)
 static void test_combined_line(void)
 {
     fx_setup();
-    fx_send("*CLS;*IDN?;*OPC?;*STB?");
-    CHECK_STR(fx_out(), "Acme,Widget,SN123,1.2.3;1;0\n");
+    fx_send("*CLS;*OPC?;*STB?;*IDN?");
+    CHECK_STR(fx_out(), "1;0;Acme,Widget,SN123,1.2.3\n");
+}
+
+/* IEEE 488.2 6.5.7.5.7: *IDN? answers with arbitrary ASCII data, which must
+ * be the last response of its message; a query after it is -440 and is not
+ * answered. Commands after it still run. */
+static void test_query_after_idn(void)
+{
+    fx_setup();
+    fx_send("*IDN?;*OPC?;*STB?");
+    CHECK_STR(fx_out(), "Acme,Widget,SN123,1.2.3\n");
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -440);
+    CHECK_INT(viper_scpi_error_pop(&g_ctx), -440);
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+    fx_clear();
+    fx_send("*IDN?;*CLS");
+    CHECK_STR(fx_out(), "Acme,Widget,SN123,1.2.3\n");
+    CHECK_INT(viper_scpi_error_count(&g_ctx), 0);
+    fx_clear();
+    fx_send("*OPC?");                      /* the next message is not affected */
+    CHECK_STR(fx_out(), "1\n");
+    fx_send("SYST:ERR?");
+    CHECK_STR(fx_out(), "1\n0,\"No error\"\n");
 }
 
 static void test_event_set(void)
@@ -297,6 +328,13 @@ static viper_scpi_result_t cb_opt(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
+/* *SUF?: the first numeric suffix, -1 if none (common headers have none). */
+static viper_scpi_result_t cb_suf(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_int(ctx, viper_scpi_suffix(ctx, 0, -1));
+    return VIPER_SCPI_RES_OK;
+}
+
 static viper_scpi_result_t cb_my_idn(viper_scpi_context_t *ctx)
 {
     viper_scpi_result_text(ctx, "MINE");
@@ -322,6 +360,7 @@ static void test_user_common_commands(void)
         { "SAV", cb_sav, NULL },
         { "OPT", cb_opt, NULL },
         { "IDN", cb_my_idn, NULL },     /* replaces the built-in */
+        { "SUF", cb_suf, NULL },
         VIPER_SCPI_NODE_END
     };
     viper_scpi_config_t cfg = *(g_ctx.cfg);
@@ -340,6 +379,9 @@ static void test_user_common_commands(void)
     CHECK_INT(viper_scpi_error_pop(&g_ctx), -222);
     fx_send("*RCL 1");                    /* neither table has it */
     CHECK_INT(viper_scpi_error_pop(&g_ctx), -113);
+    fx_clear();
+    fx_send("CHAN3:RANG2?;*SUF?");        /* not the previous command's suffix */
+    CHECK_STR(fx_out() + strcspn(fx_out(), ";"), ";-1\n");
     fx_setup();                           /* restore the fixture */
 }
 
@@ -357,6 +399,7 @@ int main(void)
     test_ese_sre();
     test_malformed_common_commands();
     test_combined_line();
+    test_query_after_idn();
     test_event_set();
     test_power_on();
     test_trg();

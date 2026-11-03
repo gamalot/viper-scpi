@@ -3,7 +3,9 @@
  * @brief Compile-time limits and defaults for viper-scpi.
  *
  * Every macro can be overridden on the compiler command line
- * (e.g. -DVIPER_SCPI_BUFFER_SIZE=256) before this header is included.
+ * (e.g. -DVIPER_SCPI_BUFFER_SIZE=256) before this header is included. A
+ * value may be an expression (-DVIPER_SCPI_BUFFER_SIZE=2*128); the library
+ * puts every use in parentheses.
  */
 #ifndef VIPER_SCPI_CONFIG_H
 #define VIPER_SCPI_CONFIG_H
@@ -18,7 +20,9 @@
 #define VIPER_SCPI_MAX_PARAMS 8
 #endif
 
-/** Maximum number of nodes in one command header (e.g. A:B:C? has 3). */
+/** Maximum number of mnemonics in one command header, including the path
+ *  inherited by a relative header (e.g. A:B:C? has 3); at least 3, the depth
+ *  of the built-in SYSTem:ERRor:NEXT? and STATus:OPERation:ENABle. */
 #ifndef VIPER_SCPI_MAX_RECURSION_DEPTH
 #define VIPER_SCPI_MAX_RECURSION_DEPTH 8
 #endif
@@ -66,8 +70,8 @@
 #if VIPER_SCPI_MAX_PARAMS < 1 || VIPER_SCPI_MAX_PARAMS > 255
 #error "VIPER_SCPI_MAX_PARAMS must be 1..255"
 #endif
-#if VIPER_SCPI_MAX_RECURSION_DEPTH < 1 || VIPER_SCPI_MAX_RECURSION_DEPTH > 255
-#error "VIPER_SCPI_MAX_RECURSION_DEPTH must be 1..255"
+#if VIPER_SCPI_MAX_RECURSION_DEPTH < 3 || VIPER_SCPI_MAX_RECURSION_DEPTH > 255
+#error "VIPER_SCPI_MAX_RECURSION_DEPTH must be 3..255 (built-in commands have 3 mnemonics)"
 #endif
 #if VIPER_SCPI_MAX_SUFFIXES < 1 || VIPER_SCPI_MAX_SUFFIXES > 255
 #error "VIPER_SCPI_MAX_SUFFIXES must be 1..255"

@@ -328,6 +328,120 @@ static void test_fail(void)
     CHECK_INT(viper_scpi_error_count(&c), 0);
 }
 
+/* fail() twice in one callback: each code is queued once, whichever of
+ * them the callback returns. */
+static viper_scpi_result_t cb_fail_twice_first(viper_scpi_context_t *ctx)
+{
+    viper_scpi_result_t r = viper_scpi_fail(ctx, -222, "first");
+    (void)viper_scpi_fail(ctx, 101, "second");
+    return r;
+}
+
+static viper_scpi_result_t cb_fail_twice_last(viper_scpi_context_t *ctx)
+{
+    (void)viper_scpi_fail(ctx, -222, "first");
+    return viper_scpi_fail(ctx, 101, "second");
+}
+
+static void test_fail_twice(void)
+{
+    static const viper_scpi_node_t root[] = {
+        { "FIRSt", cb_fail_twice_first, NULL },
+        { "LAST", cb_fail_twice_last, NULL },
+        VIPER_SCPI_NODE_END
+    };
+    static const viper_scpi_config_t cfg = { .root = root };
+    viper_scpi_context_t c;
+
+    (void)viper_scpi_init(&c, &cfg);
+    for (int i = 0; i < 2; i++) {
+        viper_scpi_input_buffer(&c, i == 0 ? "FIRS\n" : "LAST\n", 5);
+        CHECK_INT(viper_scpi_error_pop(&c), -222);
+        CHECK_INT(viper_scpi_error_pop(&c), 101);
+        CHECK_INT(viper_scpi_error_count(&c), 0);
+    }
+}
+
+/* A query that clears what it reports clears it only once its reply was
+ * written: if the reply is cut short (-321), the data stays readable. */
+static size_t s_short_budget;
+static char s_short_out[64];
+static size_t s_short_len;
+
+static size_t short_write(void *user, const char *data, size_t len)
+{
+    size_t k = len < s_short_budget ? len : s_short_budget;
+
+    (void)user;
+    s_short_budget -= k;
+    if (s_short_len + k < sizeof s_short_out) {
+        memcpy(s_short_out + s_short_len, data, k);
+        s_short_len += k;
+        s_short_out[s_short_len] = '\0';
+    }
+    return k;
+}
+
+static void short_send(viper_scpi_context_t *c, const char *line, size_t budget)
+{
+    s_short_budget = budget;
+    s_short_len = 0;
+    s_short_out[0] = '\0';
+    viper_scpi_input_buffer(c, line, strlen(line));
+}
+
+static void test_failed_reply_keeps_data(void)
+{
+    static const viper_scpi_config_t cfg = { .write = short_write };
+    viper_scpi_context_t c;
+    const char *info;
+
+    (void)viper_scpi_init(&c, &cfg);              /* ESR holds PON */
+    short_send(&c, "*ESR?\n", 0);                 /* nothing can be written */
+    short_send(&c, "*ESR?\n", 100);
+    CHECK_STR(s_short_out, "136\n");              /* PON, and DDE from the -321 */
+    short_send(&c, "*ESR?\n", 100);
+    CHECK_STR(s_short_out, "0\n");
+
+    (void)viper_scpi_init(&c, &cfg);
+    viper_scpi_error_push_info(&c, -222, "VOLT 31.5 exceeds the 30 V limit of channel 2");
+    short_send(&c, "SYST:ERR?\n", 10);            /* cut short: -321 */
+    CHECK_INT(viper_scpi_error_count(&c), 2);
+    CHECK_INT(viper_scpi_error_pop_info(&c, &info), -222);
+    CHECK_STR(info, "VOLT 31.5 exceeds the 30 V limit of channel 2");
+    CHECK_INT(viper_scpi_error_pop(&c), -321);
+
+    (void)viper_scpi_init(&c, &cfg);
+    viper_scpi_status_condition(&c, VIPER_SCPI_STATUS_QUES, 1, 1);
+    short_send(&c, "STAT:QUES?\n", 0);
+    short_send(&c, "STAT:QUES?\n", 100);
+    CHECK_STR(s_short_out, "1\n");
+    short_send(&c, "STAT:QUES?\n", 100);
+    CHECK_STR(s_short_out, "0\n");
+}
+
+/* *CLS clears the event registers before its hook runs, so an event the
+ * hook raises is a new service request. */
+static void cls_hook(viper_scpi_context_t *ctx)
+{
+    viper_scpi_status_condition(ctx, VIPER_SCPI_STATUS_QUES, 1, 0);
+    viper_scpi_status_condition(ctx, VIPER_SCPI_STATUS_QUES, 1, 1); /* rises again */
+}
+
+static void test_cls_hook_raises_new_request(void)
+{
+    static const viper_scpi_config_t cfg = { .clear = cls_hook };
+    viper_scpi_context_t c;
+
+    (void)viper_scpi_init(&c, &cfg);
+    viper_scpi_input_buffer(&c, "*SRE 8;STAT:QUES:ENAB 1\n", 25);
+    viper_scpi_status_condition(&c, VIPER_SCPI_STATUS_QUES, 1, 1);
+    CHECK(viper_scpi_take_service_request(&c));
+    (void)viper_scpi_serial_poll(&c);
+    viper_scpi_input_buffer(&c, "*CLS\n", 5);
+    CHECK(viper_scpi_take_service_request(&c));
+}
+
 int main(void)
 {
     test_queue_fifo();
@@ -345,5 +459,8 @@ int main(void)
     test_srq_edges_from_c();
     test_builtin_form_before_params();
     test_fail();
+    test_fail_twice();
+    test_failed_reply_keeps_data();
+    test_cls_hook_raises_new_request();
     return test_summary("test_error");
 }

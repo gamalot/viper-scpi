@@ -430,7 +430,7 @@ static viper_scpi_result_t split_params(viper_scpi_context_t *ctx, const char *p
 /* ---- Tree traversal --------------------------------------------------------- */
 
 /* Depth guard against malformed (cyclic) trees. */
-#define MAX_TREE_DEPTH (2 * VIPER_SCPI_MAX_RECURSION_DEPTH)
+#define MAX_TREE_DEPTH (2 * (VIPER_SCPI_MAX_RECURSION_DEPTH))
 
 /* Records the suffix of the next '#' mnemonic of the path. Only the first
  * VIPER_SCPI_MAX_SUFFIXES are kept; further ones still count, so the
@@ -640,7 +640,16 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
                 return VIPER_SCPI_RES_ERR_SYNTAX; /* empty mnemonic */
             }
             if (nseg >= VIPER_SCPI_MAX_RECURSION_DEPTH) {
-                return VIPER_SCPI_RES_ERR_MNEMONIC_TOO_LONG;
+                if (npre == 0 || (ctx->cfg->options & VIPER_SCPI_OPT_RELATIVE_FALLBACK) == 0) {
+                    return VIPER_SCPI_RES_ERR_MNEMONIC_TOO_LONG;
+                }
+                /* Lenient: the path with the inherited prefix is too deep to
+                 * exist, so only the retry from the root can match. */
+                for (size_t k = npre; k < nseg; k++) {
+                    segs[k - npre] = segs[k];
+                }
+                nseg -= npre;
+                npre = 0;
             }
             segs[nseg].str = h + st;
             segs[nseg].len = i - st;
@@ -713,7 +722,8 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
     ctx->param_count = 0;
     ctx->is_query = 0;
     ctx->deferred = NULL; /* set for tree and user common commands */
-    ctx->failed = VIPER_SCPI_RES_OK;
+    ctx->fail_from = 0;
+    ctx->suffix_count = 0; /* a common command has none; resolve sets them */
 
     while (n > 0 && viper_scpi_is_space(*s)) {
         s++;
@@ -727,9 +737,15 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
         hlen++;
     }
 
-    res = split_params(ctx, s + hlen, n - hlen);
-    if (res == VIPER_SCPI_RES_OK) {
-        res = dispatch(ctx, s, hlen);
+    if (ctx->indefinite && s[hlen - 1] == '?') {
+        /* IEEE 488.2 6.5.7.5.7: an indefinite response (*IDN?) must be the
+         * last of its reply; a query after it is not answered. */
+        res = VIPER_SCPI_RES_ERR_QUERY_INDEFINITE;
+    } else {
+        res = split_params(ctx, s + hlen, n - hlen);
+        if (res == VIPER_SCPI_RES_OK) {
+            res = dispatch(ctx, s, hlen);
+        }
     }
     viper_scpi_queue_result(ctx, res);
     viper_scpi_srq_update(ctx);
@@ -812,7 +828,7 @@ static bool stream_call(viper_scpi_context_t *ctx, viper_scpi_stream_event_t ev,
 {
     viper_scpi_result_t res;
 
-    ctx->failed = VIPER_SCPI_RES_OK;
+    ctx->fail_from = 0;
     ctx->running = VIPER_SCPI_RUN_STREAM;
     res = ctx->stream(ctx, ev, data, len);
     ctx->running = VIPER_SCPI_RUN_NONE;
@@ -871,6 +887,7 @@ static void message_begin(viper_scpi_context_t *ctx)
     ctx->prefix_count = 0;
     ctx->line_has_output = 0;
     ctx->out_overflow = 0;
+    ctx->indefinite = 0;
 }
 
 /*
@@ -935,7 +952,10 @@ static void run_line(viper_scpi_context_t *ctx)
         }
         execute_unit(ctx, ctx->buffer + start, i - start);
         if (!last_unit && ctx->buffer[i] == '\n') {
-            ctx->prefix_count = 0; /* a new line starts at the root */
+            /* VIPER_SCPI_OPT_EOM_MESSAGES: a new line starts at the root,
+             * and may query again after *IDN? (its replies are joined). */
+            ctx->prefix_count = 0;
+            ctx->indefinite = 0;
         }
         if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
             /* Resume after the separator; after the last unit, at the end
@@ -1170,6 +1190,7 @@ static bool stream_start(viper_scpi_context_t *ctx)
     }
     ctx->line_has_output = 0; /* message_begin(), except the path: */
     ctx->out_overflow = 0;    /* resolve_header() has just set it */
+    ctx->indefinite = 0;
     ctx->msg_started = 1;
     ctx->exec_pos = (uint16_t)((size_t)(s - ctx->buffer) + hlen); /* end of the header */
     ctx->unit_has_output = 0;
@@ -1395,7 +1416,7 @@ void viper_scpi_end_of_message(viper_scpi_context_t *ctx)
 
 void viper_scpi_op_begin(viper_scpi_context_t *ctx)
 {
-    if (ctx->op_count < UINT8_MAX) {
+    if (ctx->op_count < UINT16_MAX) {
         ctx->op_count++;
     }
 }
@@ -1442,7 +1463,7 @@ void viper_scpi_poll(viper_scpi_context_t *ctx)
         ctx->unit_has_output = 0;
         ctx->resumed = 1;
         ctx->running = VIPER_SCPI_RUN_UNITS;
-        ctx->failed = VIPER_SCPI_RES_OK;
+        ctx->fail_from = 0;
         res = ctx->deferred(ctx);
         ctx->running = VIPER_SCPI_RUN_NONE;
         ctx->resumed = 0;

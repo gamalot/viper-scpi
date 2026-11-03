@@ -396,6 +396,26 @@ static void test_deferred_query(void)
     CHECK(!viper_scpi_resumed(&q));
 }
 
+/* More than 255 operations pending at once are still counted. */
+static void test_many_operations(void)
+{
+    setup();
+    for (int i = 0; i < 300; i++) {
+        viper_scpi_op_begin(&q);
+    }
+    viper_scpi_input_buffer(&q, "*CLS;*OPC\n", 10);
+    for (int i = 0; i < 299; i++) {
+        viper_scpi_op_end(&q);
+    }
+    CHECK(viper_scpi_op_pending(&q));
+    viper_scpi_input_buffer(&q, "*ESR?\n", 6);
+    CHECK_STR(reply(), "0\n");
+    viper_scpi_op_end(&q);
+    CHECK(!viper_scpi_op_pending(&q));
+    viper_scpi_input_buffer(&q, "*ESR?\n", 6);
+    CHECK_STR(reply(), "1\n");
+}
+
 int main(void)
 {
     test_no_operation_is_immediate();
@@ -415,5 +435,6 @@ int main(void)
     test_no_srq_for_hidden_reply();
     test_discard_while_suspended();
     test_deferred_query();
+    test_many_operations();
     return test_summary("test_overlapped");
 }

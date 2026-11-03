@@ -19,9 +19,11 @@
 | Event status register (ESR) | `*ESR?` (clears it) | `viper_scpi_event_set()` | `*ESR?`, `*CLS` |
 | Event status enable | `*ESE?` | `*ESE <0..255>` | -- |
 
-ESR bits: OPC 0 (`*OPC`), QYE 2 (-400..-499), DDE 3 (-300..-399 and positive
-device codes), EXE 4 (-200..-299), CME 5 (-100..-199), URQ 6 (yours, via
-`viper_scpi_event_set()`), PON 7 (set by `viper_scpi_init()`).
+ESR bits: OPC 0 (`*OPC`, -800..-899), RQC 1 (-700..-799), QYE 2 (-400..-499),
+DDE 3 (-300..-399 and positive device codes), EXE 4 (-200..-299), CME 5
+(-100..-199), URQ 6 (-600..-699, or yours via `viper_scpi_event_set()`), PON 7
+(-500..-599; set by `viper_scpi_init()`). The event classes follow SCPI-99
+21.8.
 
 Pushing an error sets its ESR bit automatically. A controller that wants a
 service request on any error sends `*ESE 60;*SRE 32` (CME|EXE|DDE|QYE into ESB,
@@ -87,6 +89,12 @@ with `SYSTem:ERRor?` (`<code>,"<text>"`; `0,"No error"` when empty).
 `SYSTem:ERRor:COUNt?` tells how many are queued. The queue holds
 `VIPER_SCPI_ERROR_QUEUE_SIZE` (8) entries; when it is full the newest entry
 becomes `-350,"Queue overflow"`, as the standard requires. `*CLS` empties it.
+
+`SYSTem:ERRor?`, `*ESR?` and `STATus:...:EVENt?` clear what they report only
+once their reply was written (stream model) or queued (message-exchange
+model). If the reply is cut short -- a `write` that takes less, or a reply
+larger than `output_size` -- the entry or the register bits stay for the next
+read, next to the -321.
 
 From C:
 
@@ -157,7 +165,7 @@ never a stack buffer.
 | -104 | Data type error | a parameter of the wrong kind |
 | -108 | Parameter not allowed | too many parameters; a parameter after a streamed block |
 | -109 | Missing parameter | a required parameter is absent |
-| -112 | Program mnemonic too long | more than 8 mnemonics in a header |
+| -112 | Program mnemonic too long | more than `VIPER_SCPI_MAX_RECURSION_DEPTH` (8) mnemonics in a header, the inherited path included (with `VIPER_SCPI_OPT_RELATIVE_FALLBACK` the header is then tried from the root) |
 | -113 | Undefined header | no such command, or the wrong form (query/command) |
 | -114 | Header suffix out of range | (for your callbacks) |
 | -131 | Invalid suffix | unknown or disallowed unit |
@@ -172,6 +180,7 @@ never a stack buffer.
 | -400 | Query error | a second generated block in one reply |
 | -410 | Query INTERRUPTED | a new message over an unread reply |
 | -420 | Query UNTERMINATED | (pushed by the transport) a read with nothing queued |
+| -440 | Query UNTERMINATED after indefinite response | a query after `*IDN?` in the same message (IEEE 488.2 6.5.7.5.7); it is not answered |
 
 What these usually mean when they show up unexpectedly: see
 [Troubleshooting](troubleshooting.md).

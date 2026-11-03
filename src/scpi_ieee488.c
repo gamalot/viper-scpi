@@ -14,6 +14,7 @@ static viper_scpi_result_t cmd_idn(viper_scpi_context_t *ctx)
     viper_scpi_result_text(ctx, model);
     viper_scpi_result_text(ctx, serial);
     viper_scpi_result_text(ctx, firmware);
+    ctx->indefinite = 1; /* arbitrary ASCII response data: last in the reply */
     return VIPER_SCPI_RES_OK;
 }
 
@@ -43,6 +44,7 @@ static viper_scpi_result_t cmd_cls(viper_scpi_context_t *ctx)
     ctx->opc_armed = 0; /* back to Operation Complete Command Idle State */
     ctx->status[VIPER_SCPI_STATUS_OPER].event = 0; /* SCPI: *CLS clears the */
     ctx->status[VIPER_SCPI_STATUS_QUES].event = 0; /* status event registers */
+    viper_scpi_srq_update(ctx); /* so that a rise in the hook is a new request */
     if (ctx->cfg->clear != NULL) {
         ctx->cfg->clear(ctx);
     }
@@ -83,8 +85,12 @@ static viper_scpi_result_t cmd_stb(viper_scpi_context_t *ctx)
 
 static viper_scpi_result_t cmd_esr(viper_scpi_context_t *ctx)
 {
-    viper_scpi_result_int(ctx, ctx->esr);
-    ctx->esr = 0;
+    uint8_t esr = ctx->esr;
+
+    viper_scpi_result_int(ctx, esr);
+    if (viper_scpi_reply_ok(ctx)) {
+        ctx->esr = (uint8_t)(ctx->esr & ~esr); /* reading clears what it reported */
+    }
     return VIPER_SCPI_RES_OK;
 }
 

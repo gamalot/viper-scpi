@@ -30,6 +30,7 @@ static const struct {
     { VIPER_SCPI_RES_ERR_QUERY, "Query error" },
     { VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED, "Query INTERRUPTED" },
     { VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED, "Query UNTERMINATED" },
+    { VIPER_SCPI_RES_ERR_QUERY_INDEFINITE, "Query UNTERMINATED after indefinite response" },
 };
 
 const char *viper_scpi_error_message(viper_scpi_result_t code)
@@ -73,6 +74,19 @@ static uint8_t esr_bit_for(viper_scpi_result_t code)
     if (code <= -400 && code >= -499) {
         return VIPER_SCPI_ESR_QYE;
     }
+    /* SCPI-99 21.8: the event classes that report an ESR event. */
+    if (code <= -500 && code >= -599) {
+        return VIPER_SCPI_ESR_PON;
+    }
+    if (code <= -600 && code >= -699) {
+        return VIPER_SCPI_ESR_URQ;
+    }
+    if (code <= -700 && code >= -799) {
+        return VIPER_SCPI_ESR_RQC;
+    }
+    if (code <= -800 && code >= -899) {
+        return VIPER_SCPI_ESR_OPC;
+    }
     return code > 0 ? VIPER_SCPI_ESR_DDE : 0;
 }
 
@@ -86,12 +100,12 @@ void viper_scpi_error_push_info(viper_scpi_context_t *ctx, viper_scpi_result_t c
 
     if (ctx->err_count >= VIPER_SCPI_ERROR_QUEUE_SIZE) {
         /* Queue full: the newest entry becomes "Queue overflow". */
-        size_t last = ((size_t)ctx->err_head + ctx->err_count - 1) % VIPER_SCPI_ERROR_QUEUE_SIZE;
+        size_t last = ((size_t)ctx->err_head + ctx->err_count - 1) % (VIPER_SCPI_ERROR_QUEUE_SIZE);
         ctx->err_queue[last] = VIPER_SCPI_RES_ERR_QUEUE_OVERFLOW;
         ctx->err_info[last] = NULL;
         ctx->esr = (uint8_t)(ctx->esr | VIPER_SCPI_ESR_DDE); /* -350 is a -3xx error */
     } else {
-        size_t slot = ((size_t)ctx->err_head + ctx->err_count) % VIPER_SCPI_ERROR_QUEUE_SIZE;
+        size_t slot = ((size_t)ctx->err_head + ctx->err_count) % (VIPER_SCPI_ERROR_QUEUE_SIZE);
         ctx->err_queue[slot] = code;
         ctx->err_info[slot] = info;
         ctx->err_count++;
@@ -107,16 +121,28 @@ void viper_scpi_error_push(viper_scpi_context_t *ctx, viper_scpi_result_t code)
 viper_scpi_result_t viper_scpi_fail(viper_scpi_context_t *ctx, viper_scpi_result_t code,
                                     const char *detail)
 {
+    if (ctx->fail_from == 0) {
+        ctx->fail_from = (uint16_t)(ctx->err_count + 1u);
+    }
     viper_scpi_error_push_info(ctx, code, detail);
-    ctx->failed = code; /* the caller returns it: not queued again */
     return code;
 }
 
 void viper_scpi_queue_result(viper_scpi_context_t *ctx, viper_scpi_result_t res)
 {
-    if (res != ctx->failed) {
-        viper_scpi_error_push(ctx, res);
+    if (res == VIPER_SCPI_RES_OK) {
+        return;
     }
+    if (ctx->fail_from != 0) {
+        /* Not again if viper_scpi_fail() queued it during this call. */
+        for (size_t i = (size_t)ctx->fail_from - 1u; i < ctx->err_count; i++) {
+            if (ctx->err_queue[((size_t)ctx->err_head + i) % (VIPER_SCPI_ERROR_QUEUE_SIZE)] ==
+                res) {
+                return;
+            }
+        }
+    }
+    viper_scpi_error_push(ctx, res);
 }
 
 viper_scpi_result_t viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const char **info)
@@ -133,7 +159,7 @@ viper_scpi_result_t viper_scpi_error_pop_info(viper_scpi_context_t *ctx, const c
     if (info != NULL) {
         *info = ctx->err_info[ctx->err_head];
     }
-    ctx->err_head = (uint8_t)((ctx->err_head + 1) % VIPER_SCPI_ERROR_QUEUE_SIZE);
+    ctx->err_head = (uint8_t)((ctx->err_head + 1) % (VIPER_SCPI_ERROR_QUEUE_SIZE));
     ctx->err_count--;
     viper_scpi_srq_update(ctx); /* EAV may fall */
     return code;
@@ -252,9 +278,14 @@ static viper_scpi_result_t cmd_syst_err_next(viper_scpi_context_t *ctx)
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
-    code = viper_scpi_error_pop_info(ctx, &info);
+    /* The oldest entry, removed only once its reply was written or queued. */
+    code = (ctx->err_count > 0) ? ctx->err_queue[ctx->err_head] : VIPER_SCPI_RES_OK;
+    info = (ctx->err_count > 0) ? ctx->err_info[ctx->err_head] : NULL;
     viper_scpi_result_int(ctx, code);
     viper_scpi_result_string_pair(ctx, viper_scpi_error_text(ctx, code), info);
+    if (viper_scpi_reply_ok(ctx)) {
+        (void)viper_scpi_error_pop(ctx);
+    }
     return VIPER_SCPI_RES_OK;
 }
 

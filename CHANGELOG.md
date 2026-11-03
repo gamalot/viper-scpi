@@ -6,6 +6,39 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Fixed
+
+The remaining findings of the second full code review.
+
+- A query after `*IDN?` in the same message is now -440 (Query
+  UNTERMINATED after indefinite response, IEEE 488.2 6.5.7.5.7) and is not
+  answered: `*IDN?;*OPC?` used to append `;1` to the firmware field. With
+  `VIPER_SCPI_OPT_EOM_MESSAGES` each line starts afresh, so `*IDN?<LF>*OPC?`
+  still gets both answers. **Behaviour change.**
+- `SYSTem:ERRor?`, `*ESR?` and `STATus:...:EVENt?` clear what they report
+  only once their reply was written or queued: a reply cut short by a short
+  `write` or by `output_size` used to lose the error or the event bits for
+  good. `*ESR?` and `EVENt?` clear only the bits they reported.
+- `*CLS` re-evaluates the service request before calling `cfg.clear`, so an
+  event the hook raises is a new request.
+- `viper_scpi_fail()` called twice in one callback queued the first code a
+  second time when the callback returned it.
+- `viper_scpi_error_push()` sets PON, URQ, RQC and OPC for the SCPI event
+  classes -500, -600, -700 and -800 (SCPI-99 21.8); they set no ESR bit
+  before. New constant `VIPER_SCPI_ESR_RQC`.
+- More than 255 pending operations (`viper_scpi_op_begin()`) made `*OPC`,
+  `*OPC?` and `*WAI` complete early; the count is 16-bit now.
+- `viper_scpi_suffix()` in a `cfg.common` callback returned the previous
+  tree command's suffixes instead of the default.
+- With `VIPER_SCPI_OPT_RELATIVE_FALLBACK`, a relative header whose inherited
+  path made it longer than `VIPER_SCPI_MAX_RECURSION_DEPTH` failed with -112
+  instead of being tried from the root.
+- A limit given as an expression (`-DVIPER_SCPI_ERROR_QUEUE_SIZE=10-2`) was
+  used unparenthesised and corrupted memory; every use is parenthesised, and
+  a CI step builds the tests that way.
+- `VIPER_SCPI_MAX_RECURSION_DEPTH` 1 or 2 made the built-in `SYSTem:ERRor`
+  and `STATus` commands unreachable; the minimum is 3 now (compile error).
+
 ## [0.5.1] - 2026-11-03
 
 ### Fixed

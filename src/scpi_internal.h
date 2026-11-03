@@ -76,9 +76,17 @@ enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ, VIPE
 size_t viper_scpi_scan_number(const char *s, size_t n);
 
 /** Queue what a callback or stream handler returned (nothing for 0), unless
- *  it is the code viper_scpi_fail() queued during the call. Each caller sets
- *  ctx->failed to 0 before the call and ends with this. */
+ *  viper_scpi_fail() queued that code during the call. Each caller sets
+ *  ctx->fail_from to 0 before the call and ends with this. */
 void viper_scpi_queue_result(viper_scpi_context_t *ctx, viper_scpi_result_t res);
+
+/** The reply so far was written or queued: a query that clears what it
+ *  reports (*ESR?, SYSTem:ERRor?, STATus:...:EVENt?) may clear it now. If the
+ *  reply was cut short (-321), the data stays for the next read. */
+static inline bool viper_scpi_reply_ok(const viper_scpi_context_t *ctx)
+{
+    return ctx->out_overflow == 0;
+}
 
 /** STATus subtree, hooked into the built-in root. */
 extern const viper_scpi_node_t viper_scpi_status_children[];

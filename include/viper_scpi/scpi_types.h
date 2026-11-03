@@ -46,12 +46,15 @@ enum {
     VIPER_SCPI_RES_ERR_INPUT_OVERRUN = -363,    /**< Input buffer overrun */
     VIPER_SCPI_RES_ERR_QUERY = -400,            /**< Query error */
     VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED = -410,/**< New message over an unread reply */
-    VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED = -420 /**< Read requested, nothing to send */
+    VIPER_SCPI_RES_ERR_QUERY_UNTERMINATED = -420,/**< Read requested, nothing to send */
+    VIPER_SCPI_RES_ERR_QUERY_INDEFINITE = -440   /**< Query after an indefinite
+                                                      response (*IDN?) */
 };
 
 /** Event Status Register bits (IEEE 488.2). */
 enum {
     VIPER_SCPI_ESR_OPC = 0x01, /**< Operation complete */
+    VIPER_SCPI_ESR_RQC = 0x02, /**< Request control */
     VIPER_SCPI_ESR_QYE = 0x04, /**< Query error */
     VIPER_SCPI_ESR_DDE = 0x08, /**< Device dependent error */
     VIPER_SCPI_ESR_EXE = 0x10, /**< Execution error */
@@ -325,7 +328,7 @@ typedef struct {
 
 /** Entries of the relative-path base: the path minus its last mnemonic. */
 #define VIPER_SCPI_PREFIX_SIZE \
-    (VIPER_SCPI_MAX_RECURSION_DEPTH > 1 ? VIPER_SCPI_MAX_RECURSION_DEPTH - 1 : 1)
+    ((VIPER_SCPI_MAX_RECURSION_DEPTH) - 1)
 
 /**
  * Parser context. Allocate it statically; treat all fields as private and
@@ -340,8 +343,10 @@ struct viper_scpi_context_s {
     uint16_t hash_pos;     /**< Buffer offset of the '#' of the current block */
     uint16_t exec_pos;     /**< Resume point of a suspended message; while
                                 streaming, the end of the streamed header */
-    viper_scpi_result_t failed; /**< Code viper_scpi_fail() queued during the
-                                     running callback, not to be queued again */
+    uint16_t fail_from;    /**< Error count + 1 when viper_scpi_fail() first
+                                queued during the running callback, else 0:
+                                the codes queued since are not queued again */
+    uint16_t op_count;     /**< Pending operations (op_begin - op_end) */
     uint8_t wait;          /**< WAIT_* : why execution is suspended */
     uint8_t drop;          /**< Why the message is dropped (DROP_*), or 0 */
     uint8_t skip_unit;     /**< Rest of the unit is lexed but not kept */
@@ -358,6 +363,8 @@ struct viper_scpi_context_s {
     uint8_t suffix_count;
     uint8_t prefix_count;
     uint8_t line_has_output;
+    uint8_t indefinite;    /**< An indefinite response (*IDN?) ended the reply:
+                                a later query of the message is -440 */
     uint8_t unit_has_output;
     uint8_t err_head;
     uint8_t err_count;
@@ -367,7 +374,6 @@ struct viper_scpi_context_s {
     uint8_t srq_prev;      /**< Service-request summary at the last check */
     uint8_t srq_new;       /**< Rising edge not yet taken */
     uint8_t rqs;           /**< Service requested and not yet polled */
-    uint8_t op_count;      /**< Pending operations (op_begin - op_end) */
     uint8_t opc_armed;     /**< *OPC given while operations were pending */
     uint8_t out_block_active;
     uint8_t out_overflow;

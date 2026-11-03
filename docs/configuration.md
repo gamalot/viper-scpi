@@ -48,7 +48,7 @@ library's.
 | --- | --- | --- |
 | `VIPER_SCPI_BUFFER_SIZE` | 128 | bytes of one program message, blocks included |
 | `VIPER_SCPI_MAX_PARAMS` | 8 | parameters per command |
-| `VIPER_SCPI_MAX_RECURSION_DEPTH` | 8 | mnemonics per header, including the inherited path (1..255) |
+| `VIPER_SCPI_MAX_RECURSION_DEPTH` | 8 | mnemonics per header, including the inherited path (3..255: the built-in `SYSTem:ERRor:NEXT?` and `STATus:OPERation:ENABle` have 3) |
 | `VIPER_SCPI_MAX_SUFFIXES` | 4 | numeric suffixes recorded per command, 1..255 (later ones read as the default) |
 | `VIPER_SCPI_ERROR_QUEUE_SIZE` | 8 | error queue entries (2..255) |
 | `VIPER_SCPI_DOUBLE_DIGITS` | 15 | significant digits of `viper_scpi_result_double()` (1..17) |
