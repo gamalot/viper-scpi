@@ -175,9 +175,10 @@ static viper_scpi_result_t cb_bank_id(viper_scpi_context_t *ctx)
     return VIPER_SCPI_RES_OK;
 }
 
-static const viper_scpi_number_t limit_spec = { 0.0, 10.0, 5.0, NULL, 0 };
-static const viper_scpi_integer_t pcount_spec = { 1, 100, 10, 0, 0, NULL };
-static const viper_scpi_number_t vlim_spec = { -10.0, 10.0, 1.0, viper_scpi_units_volt, 0 };
+static const viper_scpi_number_t limit_spec = { .min = 0.0, .max = 10.0, .def = 5.0 };
+static const viper_scpi_integer_t pcount_spec = { .min = 1, .max = 100, .def = 10 };
+static const viper_scpi_number_t vlim_spec = { .min = -10.0, .max = 10.0, .def = 1.0,
+                                               .units = &viper_scpi_units_volt };
 
 static viper_scpi_result_t cb_limit(viper_scpi_context_t *ctx)
 {
@@ -259,11 +260,11 @@ static viper_scpi_result_t cb_broken(viper_scpi_context_t *ctx)
 }
 
 /* Generic setter/getter for a number with a unit table. */
-static viper_scpi_result_t unit_cmd(viper_scpi_context_t *ctx, const viper_scpi_unit_t *units)
+static viper_scpi_result_t unit_cmd(viper_scpi_context_t *ctx,
+                                    const viper_scpi_unit_table_t *units)
 {
-    viper_scpi_number_t spec = { -HUGE_VAL, HUGE_VAL, 0.0, NULL, 0 };
+    const viper_scpi_number_t spec = { .min = -HUGE_VAL, .max = HUGE_VAL, .units = units };
 
-    spec.units = units;
     if (viper_scpi_is_query(ctx)) {
         viper_scpi_result_double(ctx, g_num);
         return VIPER_SCPI_RES_OK;
@@ -273,47 +274,47 @@ static viper_scpi_result_t unit_cmd(viper_scpi_context_t *ctx, const viper_scpi_
 
 static viper_scpi_result_t cb_freq(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_hertz);
+    return unit_cmd(ctx, &viper_scpi_units_hertz);
 }
 
 static viper_scpi_result_t cb_res(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_ohm);
+    return unit_cmd(ctx, &viper_scpi_units_ohm);
 }
 
 static viper_scpi_result_t cb_amps(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_amp);
+    return unit_cmd(ctx, &viper_scpi_units_amp);
 }
 
 static viper_scpi_result_t cb_cap(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_farad);
+    return unit_cmd(ctx, &viper_scpi_units_farad);
 }
 
 static viper_scpi_result_t cb_time(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_second);
+    return unit_cmd(ctx, &viper_scpi_units_second);
 }
 
 static viper_scpi_result_t cb_ctmp(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_celsius);
+    return unit_cmd(ctx, &viper_scpi_units_celsius);
 }
 
 static viper_scpi_result_t cb_watt(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_watt);
+    return unit_cmd(ctx, &viper_scpi_units_watt);
 }
 
 static viper_scpi_result_t cb_ind(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_henry);
+    return unit_cmd(ctx, &viper_scpi_units_henry);
 }
 
 static viper_scpi_result_t cb_gain(viper_scpi_context_t *ctx)
 {
-    return unit_cmd(ctx, viper_scpi_units_decibel);
+    return unit_cmd(ctx, &viper_scpi_units_decibel);
 }
 
 static viper_scpi_result_t cb_vlim(viper_scpi_context_t *ctx)

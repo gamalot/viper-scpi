@@ -67,16 +67,9 @@ enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ, VIPE
 
 /** Length of the leading number of @p s: [sign] digits [. digits]
  *  [E [sign] digits], 0 if there is none. An 'E' without digits is left
- *  for a unit (EX = exa). */
+ *  for a unit (EX = exa). In scpi_params.c, so that parsing without units
+ *  links nothing from scpi_units.c. */
 size_t viper_scpi_scan_number(const char *s, size_t n);
-
-/** Splits "1.5 KHZ" into the number (its length in @p num) and an optional
- *  unit of @p units with its prefix as a power of 1000 (@p unit NULL for a
- *  bare number). DATA_TYPE without a number, INVALID_SUFFIX for a suffix
- *  that is not one of @p units. */
-viper_scpi_result_t viper_scpi_number_unit(const viper_scpi_unit_t *units, const char *s,
-                                           size_t n, size_t *num,
-                                           const viper_scpi_unit_t **unit, int *exp3);
 
 /** Queue what a callback or stream handler returned (nothing for 0), unless
  *  it is the code viper_scpi_fail() queued during the call. Each caller sets

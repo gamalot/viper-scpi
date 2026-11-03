@@ -588,6 +588,44 @@ static bool unit_scale_is_one(const viper_scpi_unit_t *u)
                                  : bits.u32 == 0x3F800000u;
 }
 
+size_t viper_scpi_scan_number(const char *s, size_t n)
+{
+    size_t i = 0;
+    size_t digits = 0;
+
+    if (i < n && (s[i] == '+' || s[i] == '-')) {
+        i++;
+    }
+    while (i < n && s[i] >= '0' && s[i] <= '9') {
+        i++;
+        digits++;
+    }
+    if (i < n && s[i] == '.') {
+        i++;
+        while (i < n && s[i] >= '0' && s[i] <= '9') {
+            i++;
+            digits++;
+        }
+    }
+    if (digits == 0) {
+        return 0;
+    }
+    /* An exponent needs digits; otherwise the 'E' starts a unit (EX = exa). */
+    if (i < n && viper_scpi_upper(s[i]) == 'E') {
+        size_t j = i + 1;
+        if (j < n && (s[j] == '+' || s[j] == '-')) {
+            j++;
+        }
+        if (j < n && s[j] >= '0' && s[j] <= '9') {
+            while (j < n && s[j] >= '0' && s[j] <= '9') {
+                j++;
+            }
+            i = j;
+        }
+    }
+    return i;
+}
+
 /* A number of spec->units, as a count of 10^exp10 base units. */
 static viper_scpi_result_t integer_value(const viper_scpi_integer_t *spec, const char *s,
                                          size_t n, int32_t *out)
@@ -604,7 +642,7 @@ static viper_scpi_result_t integer_value(const viper_scpi_integer_t *spec, const
         size_t i = 0;
         int exp3;
 
-        res = viper_scpi_number_unit(spec->units, s, n, &num, &unit, &exp3);
+        res = spec->units->split(spec->units->list, s, n, &num, &unit, &exp3);
         if (res != VIPER_SCPI_RES_OK) {
             return res;
         }

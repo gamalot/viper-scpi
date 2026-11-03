@@ -11,11 +11,11 @@
 /* viper_scpi_param_number() / _integer() with the spec spelled out, for
  * tests that try many limits. Firmware writes static const specs. */
 static inline viper_scpi_result_t num(const viper_scpi_context_t *ctx, size_t idx,
-                                      const viper_scpi_unit_t *units, double min, double max,
+                                      const viper_scpi_unit_table_t *units, double min, double max,
                                       double def, uint8_t flags, double *out,
                                       viper_scpi_numeric_kw_t *kw)
 {
-    viper_scpi_number_t spec = { min, max, def, units, flags };
+    viper_scpi_number_t spec = { min, max, def, units, flags }; /* the shared order */
     return viper_scpi_param_number(ctx, idx, &spec, out, kw);
 }
 
@@ -23,7 +23,7 @@ static inline viper_scpi_result_t intg(const viper_scpi_context_t *ctx, size_t i
                                        int32_t max, int32_t def, uint8_t flags, int32_t *out,
                                        viper_scpi_numeric_kw_t *kw)
 {
-    viper_scpi_integer_t spec = { min, max, def, 0, flags, NULL };
+    viper_scpi_integer_t spec = { min, max, def, NULL, flags, 0 };
     return viper_scpi_param_integer(ctx, idx, &spec, out, kw);
 }
 

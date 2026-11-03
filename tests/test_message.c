@@ -19,7 +19,7 @@ static void fill_pattern(void *user, uint8_t *dst, uint32_t offset, size_t count
 
 static viper_scpi_result_t cb_data(viper_scpi_context_t *ctx)
 {
-    static const viper_scpi_integer_t len = { 0, 1000000, 0, 0, 0, NULL };
+    static const viper_scpi_integer_t len = { .min = 0, .max = 1000000 };
     int32_t n;
     viper_scpi_result_t res = viper_scpi_param_integer(ctx, 0, &len, &n, NULL);
 

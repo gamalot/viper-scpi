@@ -14,8 +14,8 @@ output model added), all CI jobs green (run 41305521159).
 > `v0.2.0` (`v0.1.0` marks `d385786`). Item 1.5 cites IEEE 488.2 7.7.5 without the standard text having been
 > checked first-hand.
 >
-> **Open (2026-11-03):** section 6 lists what was found after 0.4.0 (section 5,
-> found after 0.2.0, is fixed).
+> **Status (2026-11-03):** sections 5 (found after 0.2.0) and 6 (found after
+> 0.4.0) are fixed; nothing is open.
 
 ## Ground rules
 
@@ -447,6 +447,12 @@ are costs and traps the upgrade showed, not failures.
 
 ### 6.1 `viper_scpi_param_integer()` links the unit parser even without units
 
+> **Status:** fixed for 0.5.0. Unit tables are `viper_scpi_unit_table_t`
+> objects that carry the parser (`VIPER_SCPI_UNIT_TABLE()`); the parsers call
+> through `spec->units`, and `viper_scpi_scan_number()` moved to
+> `scpi_params.c`. The link test's `int_plain` program fails if
+> `scpi_units.o` is in its map. Breaking: `.units = &viper_scpi_units_volt`.
+
 **Problem.** The firmware's only number parameter is `TEST:DATA? <n>`, a
 spec with `units = NULL`:
 
@@ -484,6 +490,12 @@ image, next to the existing "units link no soft-float" case;
 behaviour with units is unchanged (`tests/test_units.c`).
 
 ### 6.2 The two spec structs order their fields differently, and the docs initialise them by position
+
+> **Status:** fixed for 0.5.0. Both specs now start `min, max, def, units,
+> flags`; `exp10` is last in `viper_scpi_integer_t` (Breaking, in the
+> CHANGELOG). Every spec a user would copy is written with designated
+> initialisers; the tests use them too, and `tests/cxx_check.cpp` builds the
+> positional form as C++11 and the designated form as C++20.
 
 **Problem.**
 

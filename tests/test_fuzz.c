@@ -33,13 +33,17 @@ static viper_scpi_result_t cb(viper_scpi_context_t *ctx)
     bool b;
     char s[16];
     static const viper_scpi_choice_t ch[] = { { "ONE", 1 }, { "TWO", 2 }, { NULL, 0 } };
-    static const viper_scpi_number_t unit_less = { 0.0, 1.0, 0.5, NULL, 0 };
-    static const viper_scpi_number_t hertz = { 0.0, 1e9, 1.0, viper_scpi_units_hertz,
-                                               VIPER_SCPI_NUM_UPDOWN };
-    static const viper_scpi_number_t seconds = { 0.0, 1.0, 0.5, viper_scpi_units_second, 0 };
-    static const viper_scpi_integer_t digit = { 0, 9, 1, 0, 0, NULL };
-    static const viper_scpi_integer_t millivolts = { -30000, 30000, 0, -3, VIPER_SCPI_NUM_UPDOWN,
-                                                     viper_scpi_units_volt };
+    static const viper_scpi_number_t unit_less = { .min = 0.0, .max = 1.0, .def = 0.5 };
+    static const viper_scpi_number_t hertz = { .min = 0.0, .max = 1e9, .def = 1.0,
+                                               .units = &viper_scpi_units_hertz,
+                                               .flags = VIPER_SCPI_NUM_UPDOWN };
+    static const viper_scpi_number_t seconds = { .min = 0.0, .max = 1.0, .def = 0.5,
+                                                 .units = &viper_scpi_units_second };
+    static const viper_scpi_integer_t digit = { .min = 0, .max = 9, .def = 1 };
+    static const viper_scpi_integer_t millivolts = { .min = -30000, .max = 30000,
+                                                     .units = &viper_scpi_units_volt,
+                                                     .flags = VIPER_SCPI_NUM_UPDOWN,
+                                                     .exp10 = -3 };
     viper_scpi_numeric_kw_t kw;
     int c;
 

@@ -138,7 +138,7 @@ static const double pow1000[] = { 1e0, 1e3, 1e6, 1e9, 1e12, 1e15, 1e18 }; /* exa
 
 /* A number with an optional unit of @p units, in the base unit. */
 static viper_scpi_result_t double_unit(const viper_scpi_context_t *ctx, size_t idx,
-                                       const viper_scpi_unit_t *units, double *out)
+                                       const viper_scpi_unit_table_t *units, double *out)
 {
     const char *s;
     size_t n;
@@ -155,7 +155,7 @@ static viper_scpi_result_t double_unit(const viper_scpi_context_t *ctx, size_t i
     if (special_double(s, n, out)) {
         return VIPER_SCPI_RES_OK;
     }
-    res = viper_scpi_number_unit(units, s, n, &num, &unit, &exp3);
+    res = units->split(units->list, s, n, &num, &unit, &exp3);
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }

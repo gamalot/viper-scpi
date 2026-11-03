@@ -1,32 +1,28 @@
 /*
  * SCPI units and multiplier prefixes, shared by the double and the integer
  * number parsers. Tables and integer code only: integer-only firmware that
- * uses a unit table links nothing from scpi_float.c.
+ * uses a unit table links nothing from scpi_float.c, and firmware that uses
+ * no unit table links nothing from here.
  */
 #include "scpi_internal.h"
 
-const viper_scpi_unit_t viper_scpi_units_volt[] = { { "V", 1.0, 0 }, { NULL, 0, 0 } };
-const viper_scpi_unit_t viper_scpi_units_amp[] = { { "A", 1.0, 0 }, { NULL, 0, 0 } };
-const viper_scpi_unit_t viper_scpi_units_hertz[] = {
-    { "HZ", 1.0, VIPER_SCPI_UNIT_M_IS_MEGA }, { NULL, 0, 0 }
-};
-const viper_scpi_unit_t viper_scpi_units_ohm[] = {
-    { "OHM", 1.0, VIPER_SCPI_UNIT_M_IS_MEGA }, { NULL, 0, 0 }
-};
-const viper_scpi_unit_t viper_scpi_units_watt[] = { { "W", 1.0, 0 }, { NULL, 0, 0 } };
-const viper_scpi_unit_t viper_scpi_units_farad[] = { { "F", 1.0, 0 }, { NULL, 0, 0 } };
-const viper_scpi_unit_t viper_scpi_units_henry[] = { { "H", 1.0, 0 }, { NULL, 0, 0 } };
-const viper_scpi_unit_t viper_scpi_units_decibel[] = { { "DB", 1.0, 0 }, { NULL, 0, 0 } };
-const viper_scpi_unit_t viper_scpi_units_second[] = {
-    { "S", 1.0, 0 },
-    { "SEC", 1.0, 0 },
-    { "MIN", 60.0, VIPER_SCPI_UNIT_NO_PREFIX },
-    { "HOUR", 3600.0, VIPER_SCPI_UNIT_NO_PREFIX },
-    { NULL, 0, 0 }
-};
-const viper_scpi_unit_t viper_scpi_units_celsius[] = {
-    { "CEL", 1.0, VIPER_SCPI_UNIT_NO_PREFIX }, { NULL, 0, 0 }
-};
+/* Each table carries the unit parser, so only firmware that names a table
+ * links this file: the number parsers reach it through spec->units. */
+#define TABLE(name, ...)                                                 \
+    static const viper_scpi_unit_t name##_list[] = { __VA_ARGS__, { NULL, 0, 0 } }; \
+    const viper_scpi_unit_table_t viper_scpi_units_##name = VIPER_SCPI_UNIT_TABLE(name##_list)
+
+TABLE(volt, { "V", 1.0, 0 });
+TABLE(amp, { "A", 1.0, 0 });
+TABLE(hertz, { "HZ", 1.0, VIPER_SCPI_UNIT_M_IS_MEGA });
+TABLE(ohm, { "OHM", 1.0, VIPER_SCPI_UNIT_M_IS_MEGA });
+TABLE(watt, { "W", 1.0, 0 });
+TABLE(farad, { "F", 1.0, 0 });
+TABLE(henry, { "H", 1.0, 0 });
+TABLE(decibel, { "DB", 1.0, 0 });
+TABLE(second, { "S", 1.0, 0 }, { "SEC", 1.0, 0 }, { "MIN", 60.0, VIPER_SCPI_UNIT_NO_PREFIX },
+      { "HOUR", 3600.0, VIPER_SCPI_UNIT_NO_PREFIX });
+TABLE(celsius, { "CEL", 1.0, VIPER_SCPI_UNIT_NO_PREFIX });
 
 /* Multiplier prefixes as powers of 1000. The parsers scale by exact powers
  * of ten, so "10US" is the same value as "10E-6". */
@@ -82,47 +78,8 @@ static const viper_scpi_unit_t *lookup_unit(const viper_scpi_unit_t *units, cons
     return NULL;
 }
 
-size_t viper_scpi_scan_number(const char *s, size_t n)
-{
-    size_t i = 0;
-    size_t digits = 0;
-
-    if (i < n && (s[i] == '+' || s[i] == '-')) {
-        i++;
-    }
-    while (i < n && s[i] >= '0' && s[i] <= '9') {
-        i++;
-        digits++;
-    }
-    if (i < n && s[i] == '.') {
-        i++;
-        while (i < n && s[i] >= '0' && s[i] <= '9') {
-            i++;
-            digits++;
-        }
-    }
-    if (digits == 0) {
-        return 0;
-    }
-    /* An exponent needs digits; otherwise the 'E' starts a unit (EX = exa). */
-    if (i < n && viper_scpi_upper(s[i]) == 'E') {
-        size_t j = i + 1;
-        if (j < n && (s[j] == '+' || s[j] == '-')) {
-            j++;
-        }
-        if (j < n && s[j] >= '0' && s[j] <= '9') {
-            while (j < n && s[j] >= '0' && s[j] <= '9') {
-                j++;
-            }
-            i = j;
-        }
-    }
-    return i;
-}
-
-viper_scpi_result_t viper_scpi_number_unit(const viper_scpi_unit_t *units, const char *s,
-                                           size_t n, size_t *num,
-                                           const viper_scpi_unit_t **unit, int *exp3)
+viper_scpi_result_t viper_scpi_unit_split(const viper_scpi_unit_t *units, const char *s, size_t n,
+                                          size_t *num, const viper_scpi_unit_t **unit, int *exp3)
 {
     size_t i;
 

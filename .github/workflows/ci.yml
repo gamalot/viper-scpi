@@ -81,9 +81,11 @@ jobs:
         run: |
           gcc -std=c99 -Os -Iinclude -Isrc -c src/*.c
           for cxx in g++ clang++; do
-            $cxx -std=c++11 -Wall -Wextra -Wpedantic -Wconversion -Werror -Iinclude \
-                tests/cxx_check.cpp *.o -o cxx_check
-            ./cxx_check
+            for std in c++11 c++20; do
+              $cxx -std=$std -Wall -Wextra -Wpedantic -Wconversion -Werror -Iinclude \
+                  tests/cxx_check.cpp *.o -o cxx_check
+              ./cxx_check
+            done
           done
           rm -f *.o cxx_check
       - name: Check for dynamic allocation

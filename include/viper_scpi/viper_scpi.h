@@ -149,7 +149,8 @@ viper_scpi_result_t viper_scpi_param_double(const viper_scpi_context_t *ctx, siz
  * for a number) and may be NULL unless UP/DOWN are accepted; for UP and
  * DOWN @p out is left unchanged.
  *
- *     static const viper_scpi_number_t volt = { 0.0, 30.0, 0.0, viper_scpi_units_volt, 0 };
+ *     static const viper_scpi_number_t volt = {
+ *         .min = 0.0, .max = 30.0, .units = &viper_scpi_units_volt };
  *     res = viper_scpi_param_number(ctx, 0, &volt, &v, NULL);
  */
 viper_scpi_result_t viper_scpi_param_number(const viper_scpi_context_t *ctx, size_t idx,
@@ -163,7 +164,8 @@ viper_scpi_result_t viper_scpi_param_number(const viper_scpi_context_t *ctx, siz
  * numbers with exponent and units ("1.5", "1500 MV"); #H/#Q/#B and 0x numbers
  * give the count directly. INF/NINF are OUT_OF_RANGE, NAN ILLEGAL_VALUE.
  *
- *     static const viper_scpi_integer_t mv = { 0, 30000, 0, -3, 0, viper_scpi_units_volt };
+ *     static const viper_scpi_integer_t mv = {
+ *         .min = 0, .max = 30000, .units = &viper_scpi_units_volt, .exp10 = -3 };
  *     res = viper_scpi_param_integer(ctx, 0, &mv, &millivolts, NULL);
  */
 viper_scpi_result_t viper_scpi_param_integer(const viper_scpi_context_t *ctx, size_t idx,
@@ -171,16 +173,35 @@ viper_scpi_result_t viper_scpi_param_integer(const viper_scpi_context_t *ctx, si
                                              viper_scpi_numeric_kw_t *kw);
 
 /** Ready-made unit tables. */
-extern const viper_scpi_unit_t viper_scpi_units_volt[];    /* V */
-extern const viper_scpi_unit_t viper_scpi_units_amp[];     /* A */
-extern const viper_scpi_unit_t viper_scpi_units_hertz[];   /* HZ, MHZ = mega */
-extern const viper_scpi_unit_t viper_scpi_units_ohm[];     /* OHM, MOHM = mega */
-extern const viper_scpi_unit_t viper_scpi_units_watt[];    /* W */
-extern const viper_scpi_unit_t viper_scpi_units_farad[];   /* F */
-extern const viper_scpi_unit_t viper_scpi_units_henry[];   /* H */
-extern const viper_scpi_unit_t viper_scpi_units_decibel[]; /* DB */
-extern const viper_scpi_unit_t viper_scpi_units_second[];  /* S, SEC, MIN, HOUR */
-extern const viper_scpi_unit_t viper_scpi_units_celsius[]; /* CEL */
+extern const viper_scpi_unit_table_t viper_scpi_units_volt;    /* V */
+extern const viper_scpi_unit_table_t viper_scpi_units_amp;     /* A */
+extern const viper_scpi_unit_table_t viper_scpi_units_hertz;   /* HZ, MHZ = mega */
+extern const viper_scpi_unit_table_t viper_scpi_units_ohm;     /* OHM, MOHM = mega */
+extern const viper_scpi_unit_table_t viper_scpi_units_watt;    /* W */
+extern const viper_scpi_unit_table_t viper_scpi_units_farad;   /* F */
+extern const viper_scpi_unit_table_t viper_scpi_units_henry;   /* H */
+extern const viper_scpi_unit_table_t viper_scpi_units_decibel; /* DB */
+extern const viper_scpi_unit_table_t viper_scpi_units_second;  /* S, SEC, MIN, HOUR */
+extern const viper_scpi_unit_table_t viper_scpi_units_celsius; /* CEL */
+
+/**
+ * A unit table of your own, from a list ending with a NULL name:
+ *
+ *     static const viper_scpi_unit_t pressure_list[] = {
+ *         { "PA", 1.0, 0 }, { "BAR", 1e5, VIPER_SCPI_UNIT_NO_PREFIX }, { NULL, 0, 0 } };
+ *     static const viper_scpi_unit_table_t pressure = VIPER_SCPI_UNIT_TABLE(pressure_list);
+ *
+ * Multipliers: EX PE T G MA K M U N P F A (MA = mega, M = milli, except where
+ * a unit sets VIPER_SCPI_UNIT_M_IS_MEGA, e.g. MHZ).
+ */
+#define VIPER_SCPI_UNIT_TABLE(list) { viper_scpi_unit_split, (list) }
+
+/** The unit parser of every table: the leading number of @p s (its length in
+ *  @p num) and an optional unit of @p list (NULL for a bare number) with its
+ *  multiplier as a power of 1000. DATA_TYPE without a number, INVALID_SUFFIX
+ *  for a suffix not in @p list. Called through a table; not needed directly. */
+viper_scpi_result_t viper_scpi_unit_split(const viper_scpi_unit_t *list, const char *s, size_t n,
+                                          size_t *num, const viper_scpi_unit_t **unit, int *exp3);
 
 /**
  * IEEE 488.2 arbitrary block data: definite length (#<n><length><data>) or

@@ -87,18 +87,26 @@ Measured with arm-none-eabi-gcc 13.2, `-Os`, Cortex-M0+, newlib, `--gc-sections`
 
 | Program | Text |
 | --- | --- |
-| all library objects together | 11.7 KB |
-| a program using integer parameters and responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 9.4 KB in total, startup code included |
+| all library objects together | 12.1 KB |
+| a program using `viper_scpi_param_integer()` without units, integer responses, `*IDN?`, `*STB?`, `SYST:ERR?` | 9.8 KB in total, startup code included |
+| the same program also taking `VOLT 1500 MV` into millivolts with a unit table | 10.6 KB |
 | the same program also using one double parser and `viper_scpi_result_double()` | 53 KB |
 
-The difference is the C library's `snprintf`/`strtod` and the soft-float code
-behind them. All floating-point code of viper-scpi lives in
-`src/scpi_float.c`, the only file that calls them (the unit tables live in
-`src/scpi_units.c`, so `viper_scpi_param_integer()` with units links none of
-it), so firmware that never calls `viper_scpi_param_double()`,
-`viper_scpi_param_number()` or a `viper_scpi_result_double*()` function does
-not link it -- provided the library is linked as a static archive or with
-unused-section removal (GNU `--gc-sections`, TI's default). If you need doubles,
+Which files a program links depends on what it names:
+
+- `src/scpi_float.c` (and with it the C library's `snprintf`/`strtod` and the
+  soft-float code behind them) only if it calls `viper_scpi_param_double()`,
+  `viper_scpi_param_number()` or a `viper_scpi_result_double*()` function.
+  That is the 43 KB difference above.
+- `src/scpi_units.c` (the unit parser, multiplier prefixes and the
+  ready-made tables, about 1.1 KB) only if it uses a unit table: one of
+  `viper_scpi_units_*` or its own `VIPER_SCPI_UNIT_TABLE()`. The parsers
+  reach the unit parser through the table, so `viper_scpi_param_integer()`
+  or `_number()` with `units` NULL leaves it out.
+
+Both hold provided the library is linked as a static archive or with
+unused-section removal (GNU `--gc-sections`, TI's default); the CI link test
+checks them. If you need doubles,
 newlib-nano with float printf support or a vendor C library is usually much
 smaller than full newlib.
 

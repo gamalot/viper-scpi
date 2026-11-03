@@ -110,12 +110,24 @@ enum {
     VIPER_SCPI_UNIT_M_IS_MEGA = 2  /**< "M" means mega, not milli (MHZ, MOHM) */
 };
 
-/** Unit of a number spec's table; tables end with a NULL name. */
+/** One unit of a unit list; lists end with a NULL name. */
 typedef struct {
     const char *name;  /**< Case-insensitive, e.g. "HZ" */
     double scale;      /**< Factor to the base unit (1.0 unless e.g. MIN = 60) */
     uint8_t flags;     /**< VIPER_SCPI_UNIT_* */
 } viper_scpi_unit_t;
+
+/**
+ * The units a number spec accepts: a unit list and the parser for it.
+ * Define one with VIPER_SCPI_UNIT_TABLE(); the parser is reached only through
+ * tables, so firmware that uses none does not link it.
+ */
+typedef struct {
+    /** Splits a number from its unit; VIPER_SCPI_UNIT_TABLE() sets it. */
+    viper_scpi_result_t (*split)(const viper_scpi_unit_t *list, const char *s, size_t n,
+                                 size_t *num, const viper_scpi_unit_t **unit, int *exp3);
+    const viper_scpi_unit_t *list; /**< Ends with a NULL name */
+} viper_scpi_unit_table_t;
 
 /** Numeric keyword reported by viper_scpi_param_number() / _integer(). */
 typedef enum {
@@ -135,15 +147,20 @@ enum {
 /**
  * A range-checked double parameter, for viper_scpi_param_number(). Keep it
  * const (in Flash) next to the callback; one spec serves the command and the
- * query ("VOLT? MAX").
+ * query ("VOLT? MAX"). Write it with designated initialisers:
+ *
+ *     static const viper_scpi_number_t volt = {
+ *         .min = 0.0, .max = 30.0, .def = 5.0, .units = &viper_scpi_units_volt };
+ *
+ * Both spec types start min, max, def, units, flags.
  */
 typedef struct {
-    double min;                     /**< MINimum, and the lower limit */
-    double max;                     /**< MAXimum, and the upper limit */
-    double def;                     /**< DEFault */
-    const viper_scpi_unit_t *units; /**< Accepted units, NULL for none;
-                                         limits are in the base unit */
-    uint8_t flags;                  /**< VIPER_SCPI_NUM_* */
+    double min;                            /**< MINimum, and the lower limit */
+    double max;                            /**< MAXimum, and the upper limit */
+    double def;                            /**< DEFault */
+    const viper_scpi_unit_table_t *units;  /**< Accepted units, NULL for a bare
+                                                number; limits are in the base unit */
+    uint8_t flags;                         /**< VIPER_SCPI_NUM_* */
 } viper_scpi_number_t;
 
 /**
@@ -151,16 +168,21 @@ typedef struct {
  * viper_scpi_param_integer(): the value is a count of 10^exp10 base units.
  * With exp10 = -3 and the volt table, "1.5", "1500 MV" and "1.5E3MV" all
  * give 1500 (mV). Parsed without floating point.
+ *
+ *     static const viper_scpi_integer_t mvolt = {
+ *         .min = 0, .max = 30000, .def = 5000, .units = &viper_scpi_units_volt,
+ *         .exp10 = -3 };
  */
 typedef struct {
-    int32_t min;                    /**< MINimum, and the lower limit */
-    int32_t max;                    /**< MAXimum, and the upper limit */
-    int32_t def;                    /**< DEFault */
-    int16_t exp10;                  /**< Unit of the result: 10^exp10 base units */
-    uint8_t flags;                  /**< VIPER_SCPI_NUM_* */
-    const viper_scpi_unit_t *units; /**< Accepted units, NULL for none. Units
-                                         with a scale other than 1 (MIN, HOUR)
-                                         are not accepted here. */
+    int32_t min;                           /**< MINimum, and the lower limit */
+    int32_t max;                           /**< MAXimum, and the upper limit */
+    int32_t def;                           /**< DEFault */
+    const viper_scpi_unit_table_t *units;  /**< Accepted units, NULL for a bare
+                                                number. Units with a scale other
+                                                than 1 (MIN, HOUR) are refused. */
+    uint8_t flags;                         /**< VIPER_SCPI_NUM_* */
+    int16_t exp10;                         /**< Unit of the result: 10^exp10 base
+                                                units (0 for plain counts) */
 } viper_scpi_integer_t;
 
 /** Keyword/value pair for viper_scpi_param_choice(); lists end with NULL name. */

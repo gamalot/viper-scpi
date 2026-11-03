@@ -191,31 +191,33 @@ static void test_api_arguments(void)
     fx_setup();
     fx_send("PARAMS 1KHZ");
     CHECK_INT(viper_scpi_param_number(&g_ctx, 0, NULL, &d, NULL), VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, NULL, NULL),
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, NULL, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(num(&g_ctx, 5, viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL),
+    CHECK_INT(num(&g_ctx, 5, &viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_MISSING_PARAM);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_hertz, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
     CHECK_NEAR(d, 1000.0);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 5.0, 1.0, 2.0, 0, &d, NULL),
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_hertz, 5.0, 1.0, 2.0, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 1.0, 0.5, 0, NULL, NULL),
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_hertz, 0.0, 1.0, 0.5, 0, NULL, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 1e6, 0.5, 0, &d, NULL), 0);
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_hertz, 0.0, 1e6, 0.5, 0, &d, NULL), 0);
     CHECK_NEAR(d, 1000.0);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_hertz, 0.0, 10.0, 0.5, 0, &d, NULL),
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_hertz, 0.0, 10.0, 0.5, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
 }
 
 /* A user-defined unit table with scale factors and flags. */
 static void test_custom_unit_table(void)
 {
-    static const viper_scpi_unit_t pressure[] = {
+    static const viper_scpi_unit_t pressure_list[] = {
         { "PA", 1.0, 0 },
         { "BAR", 1e5, VIPER_SCPI_UNIT_NO_PREFIX },
         { "PSI", 6894.757, VIPER_SCPI_UNIT_NO_PREFIX },
         { NULL, 0, 0 }
     };
+    static const viper_scpi_unit_table_t table = VIPER_SCPI_UNIT_TABLE(pressure_list);
+    const viper_scpi_unit_table_t *pressure = &table;
     double d = 0;
 
     fx_setup();
@@ -252,9 +254,14 @@ static int32_t s_mv;
 static double s_num;
 static viper_scpi_numeric_kw_t s_kw;
 
-static const viper_scpi_integer_t mv_spec = { -30000, 30000, 1000, -3, 0, viper_scpi_units_volt };
-static const viper_scpi_number_t step_spec = { 0.0, 10.0, 5.0, viper_scpi_units_hertz,
-                                               VIPER_SCPI_NUM_UPDOWN };
+/* The documented spelling of both specs: designated initialisers. */
+static const viper_scpi_integer_t mv_spec = {
+    .min = -30000, .max = 30000, .def = 1000, .units = &viper_scpi_units_volt, .exp10 = -3
+};
+static const viper_scpi_number_t step_spec = {
+    .min = 0.0, .max = 10.0, .def = 5.0, .units = &viper_scpi_units_hertz,
+    .flags = VIPER_SCPI_NUM_UPDOWN
+};
 
 static viper_scpi_result_t cb_mv(viper_scpi_context_t *ctx)
 {

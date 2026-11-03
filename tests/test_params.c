@@ -289,7 +289,7 @@ static void test_special_values(void)
     CHECK(d != d);
     CHECK_INT(viper_scpi_param_double(&g_ctx, 5, &d), 0);
     CHECK(d != d);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_volt, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_volt, -HUGE_VAL, HUGE_VAL, 0.0, 0, &d, NULL), 0);
     CHECK(d > 1.7976931348623157e308);
     CHECK_INT(viper_scpi_param_int32(&g_ctx, 0, &i), VIPER_SCPI_RES_ERR_DATA_TYPE);
 
@@ -300,7 +300,7 @@ static void test_special_values(void)
               VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
     CHECK_INT(num(&g_ctx, 4, NULL, -10.0, 10.0, 1.0, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_ILLEGAL_VALUE);
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_volt, 0.0, 10.0, 1.0, 0, &d, NULL),
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_volt, 0.0, 10.0, 1.0, 0, &d, NULL),
               VIPER_SCPI_RES_ERR_OUT_OF_RANGE);
     CHECK_INT(num(&g_ctx, 0, NULL, 0.0, 1.0 / 0.0, 1.0, 0, &d, NULL), 0);
     CHECK(d > 1.7976931348623157e308);         /* allowed when max is INF */
@@ -355,11 +355,11 @@ static void test_special_values(void)
     CHECK_INT(intg(&g_ctx, 0, 0, 10, 1, VIPER_SCPI_NUM_UPDOWN, &i, NULL),
               VIPER_SCPI_RES_ERR_PARAM_INVALID);
 
-    CHECK_INT(num(&g_ctx, 1, viper_scpi_units_volt, 0.0, 10.0, 1.0, VIPER_SCPI_NUM_UPDOWN, &d,
+    CHECK_INT(num(&g_ctx, 1, &viper_scpi_units_volt, 0.0, 10.0, 1.0, VIPER_SCPI_NUM_UPDOWN, &d,
                   &kw), 0);
     CHECK_INT(kw, VIPER_SCPI_KW_DOWN);
     fx_send("PARAMS 500MV");
-    CHECK_INT(num(&g_ctx, 0, viper_scpi_units_volt, 0.0, 10.0, 1.0, VIPER_SCPI_NUM_UPDOWN, &d,
+    CHECK_INT(num(&g_ctx, 0, &viper_scpi_units_volt, 0.0, 10.0, 1.0, VIPER_SCPI_NUM_UPDOWN, &d,
                   &kw), 0);
     CHECK_INT(kw, VIPER_SCPI_KW_NONE);
     CHECK(d == 0.5);

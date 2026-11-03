@@ -46,7 +46,9 @@ puts into the error queue.
 #include "viper_scpi/viper_scpi.h"
 
 static double g_volts;
-static const viper_scpi_number_t volt_spec = { 0.0, 30.0, 0.0, viper_scpi_units_volt, 0 };
+static const viper_scpi_number_t volt_spec = {
+    .min = 0.0, .max = 30.0, .units = &viper_scpi_units_volt
+};
 
 static viper_scpi_result_t cmd_volt(viper_scpi_context_t *ctx)
 {

@@ -273,16 +273,23 @@ One const spec per setting describes range, default, units and keywords;
 integer in a scaled unit, without floating point) reads the parameter:
 
 ```c
-static const viper_scpi_number_t volt = { 0.0, 30.0, 5.0, viper_scpi_units_volt, 0 };
-static const viper_scpi_integer_t mvolt = { 0, 30000, 5000, -3, 0, viper_scpi_units_volt };
+static const viper_scpi_number_t volt = {
+    .min = 0.0, .max = 30.0, .def = 5.0, .units = &viper_scpi_units_volt
+};
+static const viper_scpi_integer_t mvolt = {
+    .min = 0, .max = 30000, .def = 5000, .units = &viper_scpi_units_volt, .exp10 = -3
+};
 
 res = viper_scpi_param_number(ctx, 0, &volt, &volts, NULL);     /* 1.5, 1500 MV, MAX */
 res = viper_scpi_param_integer(ctx, 0, &mvolt, &millivolts, NULL); /* same input, in mV */
 ```
 
-The spec is `{ min, max, def, units, flags }` for doubles and
-`{ min, max, def, exp10, flags, units }` for integers, so a command and its
-`VOLT? MAX` query share one definition.
+Both specs are `min, max, def, units, flags`; the integer one adds `exp10`.
+A command and its `VOLT? MAX` query share one definition. Write specs with
+designated initialisers as above: members left out are 0 or NULL. (In C++,
+designated initialisers need C++20 and must follow the declaration order;
+GCC and Clang warn under `-Wextra` about members left out, so name them all
+or write the spec by position in that order.)
 
 - **Range:** numbers must lie within `[min, max]`, or `-222` is returned.
   `INFinity`/`NINFinity` must lie within it too (use `HUGE_VAL` limits to
@@ -291,7 +298,8 @@ The spec is `{ min, max, def, units, flags }` for doubles and
   resolve to `min`, `max` and `def`.
 - **Units:** `units` NULL takes a bare number only. With a table the result is
   in base units (`1.5KHZ` gives 1500.0), scaled by an exact power of ten
-  (`10US` equals `10E-6`); a bare number is accepted as well.
+  (`10US` equals `10E-6`); a bare number is accepted as well. The unit parser
+  (`src/scpi_units.c`) is linked only if a unit table is used.
 - **Integers:** `viper_scpi_param_integer()` gives integer-only firmware
   decimals, exponents and units without linking `strtod`, `printf` or
   soft-float code. The result is a count of 10^`exp10` base units, rounded
@@ -304,15 +312,17 @@ and `M` is milli (`10MA` on amps is 10 mA), except for units with
 requires. A suffix that is not in the table, or a prefix on a unit that forbids
 it, returns `-131` (invalid suffix). Use `1E-3` for milliohm.
 
-Tables are `{ name, scale, flags }` arrays ending with a NULL name, so you can
-define your own:
+A table is a list of `{ name, scale, flags }` entries ending with a NULL
+name, wrapped by `VIPER_SCPI_UNIT_TABLE()`, so you can define your own:
 
 ```c
-static const viper_scpi_unit_t pressure[] = {
+static const viper_scpi_unit_t pressure_list[] = {
     { "PA", 1.0, 0 },                                   /* KPA, MPA, ... */
     { "BAR", 1e5, VIPER_SCPI_UNIT_NO_PREFIX },
     { NULL, 0, 0 }
 };
+static const viper_scpi_unit_table_t pressure = VIPER_SCPI_UNIT_TABLE(pressure_list);
+/* spec: .units = &pressure */
 ```
 
 Ready-made tables: `viper_scpi_units_volt`, `_amp`, `_hertz`, `_ohm`, `_watt`,
@@ -327,8 +337,10 @@ reports the keyword given (`VIPER_SCPI_KW_NONE` for a number); `out` is left
 unchanged for `UP`/`DOWN`:
 
 ```c
-static const viper_scpi_number_t volt_step = { 0.0, 30.0, 5.0, viper_scpi_units_volt,
-                                               VIPER_SCPI_NUM_UPDOWN };
+static const viper_scpi_number_t volt_step = {
+    .min = 0.0, .max = 30.0, .def = 5.0, .units = &viper_scpi_units_volt,
+    .flags = VIPER_SCPI_NUM_UPDOWN
+};
 viper_scpi_numeric_kw_t kw;
 
 res = viper_scpi_param_number(ctx, 0, &volt_step, &volts, &kw);

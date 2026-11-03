@@ -10,7 +10,7 @@ returns `VIPER_SCPI_RES_OK` or an SCPI error code you can return directly:
 ```c
 static viper_scpi_result_t cmd_ramp(viper_scpi_context_t *ctx)   /* RAMP <start>,<stop>[,<steps>] */
 {
-    static const viper_scpi_integer_t steps_spec = { 1, 1000, 10, 0, 0, NULL };
+    static const viper_scpi_integer_t steps_spec = { .min = 1, .max = 1000, .def = 10 };
     double start, stop;
     int32_t steps = 10;
     viper_scpi_result_t res;
@@ -67,7 +67,7 @@ parameters there are; optional parameters are simply absent.
 ### Keywords: MIN, MAX, DEF, UP, DOWN
 
 ```c
-static const viper_scpi_number_t volt = { 0.0, 30.0, 5.0, NULL, 0 };   /* min, max, def */
+static const viper_scpi_number_t volt = { .min = 0.0, .max = 30.0, .def = 5.0 };
 double volts;
 res = viper_scpi_param_number(ctx, 0, &volt, &volts, NULL);
 ```
@@ -81,7 +81,9 @@ flags. The `kw` argument is then required: it says which keyword (if any) was
 given, and the output is left unchanged for UP/DOWN:
 
 ```c
-static const viper_scpi_number_t volt_step = { 0.0, 30.0, 5.0, NULL, VIPER_SCPI_NUM_UPDOWN };
+static const viper_scpi_number_t volt_step = {
+    .min = 0.0, .max = 30.0, .def = 5.0, .flags = VIPER_SCPI_NUM_UPDOWN
+};
 viper_scpi_numeric_kw_t kw;
 double v = g_volts;
 res = viper_scpi_param_number(ctx, 0, &volt_step, &v, &kw);
@@ -105,7 +107,9 @@ requires: `9.9E+37`, `-9.9E+37`, `9.91E+37`.
 ### Units
 
 ```c
-static const viper_scpi_number_t freq = { 1.0, 1e9, 1e3, viper_scpi_units_hertz, 0 };
+static const viper_scpi_number_t freq = {
+    .min = 1.0, .max = 1e9, .def = 1e3, .units = &viper_scpi_units_hertz
+};
 double hz;
 res = viper_scpi_param_number(ctx, 0, &freq, &hz, NULL);   /* 10MHZ -> 1e7 */
 ```
@@ -120,15 +124,19 @@ res = viper_scpi_param_number(ctx, 0, &freq, &hz, NULL);   /* 10MHZ -> 1e7 */
   `_watt`, `_farad`, `_henry`, `_decibel`, `_second` (S, SEC, MIN, HOUR),
   `_celsius`.
 
-Your own table:
+Your own table: a unit list ending with a NULL name, wrapped by
+`VIPER_SCPI_UNIT_TABLE()`, which adds the unit parser. Only tables reach that
+parser, so firmware that uses none does not link `src/scpi_units.c`.
 
 ```c
-static const viper_scpi_unit_t pressure_units[] = {
+static const viper_scpi_unit_t pressure_list[] = {
     { "PA",  1.0,      0 },                          /* KPA, MPA, ... */
     { "BAR", 1e5,      VIPER_SCPI_UNIT_NO_PREFIX },
     { "PSI", 6894.757, VIPER_SCPI_UNIT_NO_PREFIX },
     { NULL, 0, 0 }
 };
+static const viper_scpi_unit_table_t pressure = VIPER_SCPI_UNIT_TABLE(pressure_list);
+static const viper_scpi_number_t gauge = { .min = 0.0, .max = 1e7, .units = &pressure };
 ```
 
 Conversion is multiplicative only; a unit with an offset (degF) cannot be

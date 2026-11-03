@@ -6,6 +6,35 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+Both items of section 6 of `docs/IMPROVEMENTS.md`, found while moving the
+MSPM0 firmware to 0.4.0.
+
+### Breaking
+
+- Unit tables are `viper_scpi_unit_table_t` objects, which carry the unit
+  parser, and specs point to one: `.units = &viper_scpi_units_volt` (was
+  `viper_scpi_units_volt`). A table of your own wraps its list:
+  `static const viper_scpi_unit_table_t t = VIPER_SCPI_UNIT_TABLE(list);`.
+  In exchange, `viper_scpi_param_integer()` and `_number()` with `units` NULL
+  no longer link `src/scpi_units.c` (about 1.1 KB on Cortex-M0+); the
+  parsers reach it only through a table.
+- `viper_scpi_integer_t` has the members of `viper_scpi_number_t` in the same
+  order, `min, max, def, units, flags`, then `exp10` (was `min, max, def,
+  exp10, flags, units`). Designated initialisers are unaffected; a spec
+  written by position must be reordered, and the compiler rejects most
+  mistakes (an integer where `units` now is).
+
+### Changed
+
+- Every spec in the README, `docs/` and the header comments is written with
+  designated initialisers, which also spell the same in both spec types.
+  C++ users need C++20 for those (members in declaration order, and all of
+  them under `-Wextra`) or write the spec by position.
+- `docs/configuration.md` says which parsers link `scpi_float.c` and
+  `scpi_units.c`; the CI link test adds an integer-only program without unit
+  tables and fails if `scpi_units.o` is linked, and the C++ check builds as
+  C++11 and C++20.
+
 ## [0.4.0] - 2026-11-02
 
 API cleanup from the rest of the code review: one type for error numbers,
