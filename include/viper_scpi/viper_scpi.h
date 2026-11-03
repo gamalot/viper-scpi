@@ -335,7 +335,8 @@ void viper_scpi_poll(viper_scpi_context_t *ctx);
  * OK without a result. The message is suspended like at *WAI; once no
  * operation is pending, viper_scpi_poll() calls the same callback again,
  * with the same parameters and suffixes and viper_scpi_resumed() true, and
- * that call writes the result. Only valid inside a command callback.
+ * that call writes the result. Only valid inside a command callback; a
+ * stream handler cannot defer (the call does nothing there).
  */
 void viper_scpi_defer(viper_scpi_context_t *ctx);
 /** True in the call viper_scpi_poll() makes to finish a deferred command. */

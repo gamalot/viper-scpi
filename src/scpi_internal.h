@@ -75,6 +75,12 @@ enum { VIPER_SCPI_WAIT_NONE = 0, VIPER_SCPI_WAIT_WAI, VIPER_SCPI_WAIT_OPCQ, VIPE
  *  links nothing from scpi_units.c. */
 size_t viper_scpi_scan_number(const char *s, size_t n);
 
+/** Calls a command callback (tree node, user common command, or a deferred
+ *  one again): it becomes the one viper_scpi_defer() re-runs, and the codes
+ *  viper_scpi_fail() queues from here on are not queued again. */
+viper_scpi_result_t viper_scpi_call_command(viper_scpi_context_t *ctx,
+                                            viper_scpi_cmd_callback_t cb);
+
 /** Queue what a callback or stream handler returned (nothing for 0), unless
  *  viper_scpi_fail() queued that code during the call. Each caller sets
  *  ctx->fail_from to 0 before the call and ends with this. */

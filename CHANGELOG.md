@@ -24,6 +24,10 @@ or behaviour change.
   while no request is enabled (the default). Commands take 10-33 % fewer
   cycles on Cortex-M0+ (`SYST:ERR?` with a 21-node user tree: 11174 ->
   8859).
+- Starting a program message and calling a command callback each happen in
+  one place: the streamed first command, the line executor, the user common
+  commands and the resumed deferred command share them. The documentation
+  of `viper_scpi_defer()` now says that a stream handler cannot defer.
 
 ## [0.6.0] - 2026-11-03
 

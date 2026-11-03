@@ -758,6 +758,27 @@ static viper_scpi_result_t resolve_header(viper_scpi_context_t *ctx, const char 
     return VIPER_SCPI_RES_OK;
 }
 
+/* ---- Calling callbacks ---------------------------------------------------------
+ * Command callbacks go through viper_scpi_call_command() and their results
+ * through callback_done(); stream handlers through stream_call(), with the
+ * same rules except that they cannot defer. */
+
+viper_scpi_result_t viper_scpi_call_command(viper_scpi_context_t *ctx,
+                                            viper_scpi_cmd_callback_t cb)
+{
+    ctx->deferred = cb;  /* what viper_scpi_defer() re-runs */
+    ctx->fail_from = 0;  /* codes viper_scpi_fail() queues from here on */
+    return cb(ctx);
+}
+
+/* Queues a callback's result (unless viper_scpi_fail() did) and re-evaluates
+ * the service request, which the callback may have changed. */
+static void callback_done(viper_scpi_context_t *ctx, viper_scpi_result_t res)
+{
+    viper_scpi_queue_result(ctx, res);
+    viper_scpi_srq_update(ctx);
+}
+
 static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *h, size_t hlen)
 {
     const viper_scpi_node_t *node = NULL;
@@ -766,8 +787,7 @@ static viper_scpi_result_t dispatch_tree(viper_scpi_context_t *ctx, const char *
     if (res != VIPER_SCPI_RES_OK) {
         return res;
     }
-    ctx->deferred = node->callback; /* for viper_scpi_defer() */
-    return node->callback(ctx);
+    return viper_scpi_call_command(ctx, node->callback);
 }
 
 static viper_scpi_result_t dispatch(viper_scpi_context_t *ctx, const char *h, size_t hlen)
@@ -784,28 +804,37 @@ static viper_scpi_result_t dispatch(viper_scpi_context_t *ctx, const char *h, si
 
 /* ---- Program message execution ----------------------------------------------- */
 
-static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
+/* Skips the white space before a unit's header (@p *s, @p *n); returns the
+ * header's length, 0 for an empty unit. */
+static size_t unit_header(const char **s, size_t *n)
 {
     size_t hlen = 0;
+
+    while (*n > 0 && viper_scpi_is_space(**s)) {
+        (*s)++;
+        (*n)--;
+    }
+    while (hlen < *n && !viper_scpi_is_space((*s)[hlen])) {
+        hlen++;
+    }
+    return hlen;
+}
+
+static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
+{
+    size_t hlen;
     viper_scpi_result_t res;
 
     ctx->unit_has_output = 0;
     ctx->param_count = 0;
     ctx->is_query = 0;
     ctx->deferred = NULL; /* set for tree and user common commands */
-    ctx->fail_from = 0;
+    ctx->fail_from = 0;    /* also for the hooks built-in commands call */
     ctx->suffix_count = 0; /* a common command has none; resolve sets them */
 
-    while (n > 0 && viper_scpi_is_space(*s)) {
-        s++;
-        n--;
-    }
-    if (n == 0) {
+    hlen = unit_header(&s, &n);
+    if (hlen == 0) {
         return; /* empty unit, e.g. "*RST;;*CLS" */
-    }
-
-    while (hlen < n && !viper_scpi_is_space(s[hlen])) {
-        hlen++;
     }
 
     if (ctx->indefinite && s[hlen - 1] == '?') {
@@ -818,8 +847,7 @@ static void execute_unit(viper_scpi_context_t *ctx, const char *s, size_t n)
             res = dispatch(ctx, s, hlen);
         }
     }
-    viper_scpi_queue_result(ctx, res);
-    viper_scpi_srq_update(ctx);
+    callback_done(ctx, res);
 }
 
 enum {
@@ -907,7 +935,7 @@ static bool stream_call(viper_scpi_context_t *ctx, viper_scpi_stream_event_t ev,
         ctx->drop = DROP_CLEARED;
         return false;
     }
-    viper_scpi_queue_result(ctx, res);
+    callback_done(ctx, res);
     return res == VIPER_SCPI_RES_OK;
 }
 
@@ -949,6 +977,15 @@ static void stream_unit_done(viper_scpi_context_t *ctx, char sep)
     }
     ctx->unit_start = ctx->length; /* later units do not stream */
     viper_scpi_srq_update(ctx);
+}
+
+/* IEEE 488.2 6.3.2.3: a new program message over an unread reply ends it. */
+static void interrupt_unread_reply(viper_scpi_context_t *ctx)
+{
+    if (queued(ctx) && viper_scpi_output_pending(ctx)) {
+        output_reset(ctx);
+        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
+    }
 }
 
 /* A program message starts executing: response separators, path and
@@ -1106,11 +1143,8 @@ static void finish_line(viper_scpi_context_t *ctx)
         input_reset(ctx);
         return; /* an empty line is not a program message */
     }
-    if (!ctx->msg_started && ctx->drop != DROP_REFUSED && queued(ctx) &&
-        viper_scpi_output_pending(ctx)) {
-        /* IEEE 488.2 6.3.2.3: a new message over an unread reply ends it. */
-        output_reset(ctx);
-        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
+    if (!ctx->msg_started && ctx->drop != DROP_REFUSED) {
+        interrupt_unread_reply(ctx); /* a refused message never ran */
     }
     if (block_cut(ctx)) {
         /* The controller did not send the block it started, so no command
@@ -1215,19 +1249,13 @@ static bool stream_start(viper_scpi_context_t *ctx)
     const viper_scpi_node_t *node = NULL;
     const char *s = ctx->buffer;
     size_t n = ctx->hash_pos;
-    size_t hlen = 0;
+    size_t hlen;
 
     if (ctx->cfg->stream_nodes == NULL || ctx->unit_start != 0 || ctx->drop != DROP_NONE ||
         ctx->msg_started || ctx->wait != VIPER_SCPI_WAIT_NONE) {
         return false;
     }
-    while (n > 0 && viper_scpi_is_space(*s)) {
-        s++;
-        n--;
-    }
-    while (hlen < n && !viper_scpi_is_space(s[hlen])) {
-        hlen++;
-    }
+    hlen = unit_header(&s, &n);
     if (hlen == 0 || s[0] == '*') {
         return false;
     }
@@ -1242,7 +1270,7 @@ static bool stream_start(viper_scpi_context_t *ctx)
         }
         ctx->param_count = 0;
         ctx->is_query = 0;
-        ctx->prefix_count = 0; /* first command of a message: no inherited path */
+        message_begin(ctx); /* the first command of a message: no inherited path */
         if (split_params(ctx, s + hlen, pn - hlen) != VIPER_SCPI_RES_OK) {
             return false;
         }
@@ -1255,13 +1283,7 @@ static bool stream_start(viper_scpi_context_t *ctx)
     }
 
     /* The message starts executing now. */
-    if (queued(ctx) && viper_scpi_output_pending(ctx)) {
-        output_reset(ctx);
-        viper_scpi_error_push(ctx, VIPER_SCPI_RES_ERR_QUERY_INTERRUPTED);
-    }
-    ctx->line_has_output = 0; /* message_begin(), except the path: */
-    ctx->out_overflow = 0;    /* resolve_header() has just set it */
-    ctx->indefinite = 0;
+    interrupt_unread_reply(ctx);
     ctx->msg_started = 1;
     ctx->exec_pos = (uint16_t)((size_t)(s - ctx->buffer) + hlen); /* end of the header */
     ctx->unit_has_output = 0;
@@ -1534,12 +1556,10 @@ void viper_scpi_poll(viper_scpi_context_t *ctx)
         ctx->unit_has_output = 0;
         ctx->resumed = 1;
         ctx->running = VIPER_SCPI_RUN_UNITS;
-        ctx->fail_from = 0;
-        res = ctx->deferred(ctx);
+        res = viper_scpi_call_command(ctx, ctx->deferred);
         ctx->running = VIPER_SCPI_RUN_NONE;
         ctx->resumed = 0;
-        viper_scpi_queue_result(ctx, res);
-        viper_scpi_srq_update(ctx);
+        callback_done(ctx, res);
         if (ctx->wait != VIPER_SCPI_WAIT_NONE) {
             return; /* deferred again */
         }

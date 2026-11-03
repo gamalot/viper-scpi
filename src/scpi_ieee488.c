@@ -160,8 +160,7 @@ viper_scpi_result_t viper_scpi_ieee488_dispatch(viper_scpi_context_t *ctx,
     /* The instrument's own table first: it may add or replace commands. */
     for (const viper_scpi_node_t *n = ctx->cfg->common; n != NULL && n->pattern != NULL; n++) {
         if (n->callback != NULL && viper_scpi_pattern_match(n->pattern, name, len)) {
-            ctx->deferred = n->callback; /* for viper_scpi_defer() */
-            return n->callback(ctx);
+            return viper_scpi_call_command(ctx, n->callback);
         }
     }
     for (size_t i = 0; i < sizeof common_cmds / sizeof common_cmds[0]; i++) {
