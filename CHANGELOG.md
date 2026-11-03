@@ -6,9 +6,13 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-03
+
 ### Fixed
 
-The six most serious findings of a second full code review.
+The six most serious findings of a second full code review. No API
+change; one behaviour follows the standard more closely (a refused
+message no longer ends the suspended message's reply with -410).
 
 - With `VIPER_SCPI_OPT_EOM_MESSAGES`, an LF right after a streamed block (or
   after the rest of a unit whose handler failed) did not start the next line
@@ -362,7 +366,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/gamalot/viper-scpi/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/gamalot/viper-scpi/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gamalot/viper-scpi/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gamalot/viper-scpi/compare/v0.2.1...v0.3.0
