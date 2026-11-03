@@ -6,8 +6,17 @@ and those are marked **Breaking**. Each release is tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-03
+
 Both items of section 6 of `docs/IMPROVEMENTS.md`, found while moving the
-MSPM0 firmware to 0.4.0.
+MSPM0 firmware to 0.4.0: integer-only firmware that uses no unit table no
+longer links the unit parser, and the two spec types share one member order.
+
+Upgrading from 0.4: write `.units = &viper_scpi_units_volt` (with `&`), wrap
+a unit list of your own with `VIPER_SCPI_UNIT_TABLE()`, and reorder any
+`viper_scpi_integer_t` written by position to `min, max, def, units, flags,
+exp10`. Specs written with designated initialisers and without units need
+no change.
 
 ### Breaking
 
@@ -319,7 +328,8 @@ parsers (integers in several radixes, doubles, units, MIN/MAX/DEF, booleans,
 choices, strings, block data), IEEE 488.2 mandatory commands, the SCPI error
 queue with `SYSTem:ERRor?`, and the stream output model.
 
-[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/gamalot/viper-scpi/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/gamalot/viper-scpi/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gamalot/viper-scpi/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gamalot/viper-scpi/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gamalot/viper-scpi/compare/v0.2.0...v0.2.1
